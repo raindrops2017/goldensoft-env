@@ -1,0 +1,29 @@
+# .graphifyignore
+node_modules/
+dist/
+*.generated.py
+
+# Ignore everything at the root except apps and packages
+*
+!apps/
+!packages/
+
+# Inside apps and packages, ignore everything by default
+apps/*
+packages/*
+
+# Allow the subproject directories (e.g. apps/branch-backend)
+!apps/*/
+!packages/*/
+
+# Inside the subproject directories, ignore everything by default
+apps/*/*
+packages/*/*
+
+# Allow the src/ directory itself
+!apps/*/src/
+!packages/*/src/
+
+# And allow everything inside src/ directory
+!apps/*/src/**
+!packages/*/src/**

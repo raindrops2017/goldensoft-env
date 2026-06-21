@@ -1,0 +1,16 @@
+{
+  "name": "@goldensoft/core-schemas",
+  "version": "1.0.0",
+  "description": "Shared Zod schemas and TypeScript interfaces for GoldenSoft",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "build": "tsc"
+  },
+  "dependencies": {
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.3"
+  }
+}
