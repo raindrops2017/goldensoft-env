@@ -10,6 +10,8 @@ import {
   useDeleteSection,
   useSeedDefaultLayout
 } from '../../../hooks/useTables';
+import { useOpenChecks } from '../../../hooks/api/useChecksApi';
+import { useCurrentShift } from '../../../hooks/api/useShiftApi';
 import { PERMISSIONS } from '@goldensoft/core-schemas';
 import type { Table, TableShape } from '@goldensoft/core-schemas';
 import {
@@ -61,6 +63,8 @@ export function FloorPlan() {
   const canEdit = can(PERMISSIONS.TABLES_EDIT);
 
   const { data: sections = [], isLoading } = useTableSections();
+  const { data: openChecks = [] } = useOpenChecks();
+  const { data: currentShift } = useCurrentShift();
 
   const createSectionMutation = useCreateSection();
   const createTableMutation = useCreateTable();
@@ -135,12 +139,21 @@ export function FloorPlan() {
     return sections.flatMap(s => s.tables);
   }, [sections]);
 
-  // Get table status (for mock preview purposes)
-  const getTableStatus = (tableNumber: number) => {
-    if (tableNumber % 5 === 0) return 'occupied';
-    if (tableNumber % 7 === 0) return 'printed';
-    if (tableNumber % 11 === 0) return 'splited';
-    return 'free';
+  // Get table status
+  const getTableStatus = (tableId: string) => {
+    if (!currentShift) return 'free';
+    
+    // Get all open checks for this table on the current business date
+    const tableChecks = openChecks.filter(
+      (c) => c.tableId === tableId && c.chkDate === currentShift.businessDate
+    );
+
+    if (tableChecks.length === 0) return 'free';
+    if (tableChecks.length > 1) return 'splited';
+    
+    // exactly 1 check
+    if (tableChecks[0].printCount > 0) return 'printed';
+    return 'occupied';
   };
 
   // Status-based styles
@@ -627,7 +640,7 @@ export function FloorPlan() {
                   const posX = localPos ? localPos.posX : table.posX;
                   const posY = localPos ? localPos.posY : table.posY;
                   const isSelected = selectedTableIds.includes(table.id);
-                  const status = getTableStatus(table.number);
+                  const status = getTableStatus(table.id);
                   const config = statusConfig[status];
 
                   // Dynamically resolve custom SVG component

@@ -8,7 +8,7 @@ export class ShiftController {
       const currentShift = await shiftService.getCurrentShift();
 
       if (!currentShift) {
-        res.status(404).json({ success: false, error: 'No active shift found' });
+        res.json({ success: true, data: null });
         return;
       }
 

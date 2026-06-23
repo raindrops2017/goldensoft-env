@@ -4,9 +4,11 @@ import { LoginRoute } from './routes/auth/Login';
 import { ProtectedRoute } from './components/auth/ProtectedRoute';
 import { PosTabletHome } from './routes/pos/PosTabletHome';
 import { FloorPlan } from './routes/pos/din-in/FloorPlan';
-import { TableOrderMock } from './pages/TableOrderMock';
+import TableOrder from './routes/pos/TableOrder';
+import TakeawayOrder from './routes/pos/TakeawayOrder';
 import { useThemeStore } from './store/useThemeStore';
 import { useEffect } from 'react';
+import { Toaster } from 'sonner';
 
 const queryClient = new QueryClient();
 
@@ -24,8 +26,12 @@ const routes = createBrowserRouter([
         element: <FloorPlan />
       },
       {
-        path: "/table/:id",
-        element: <TableOrderMock />
+        path: "/table/:tableNo",
+        element: <TableOrder />
+      },
+      {
+        path: "/takeaway",
+        element: <TakeawayOrder />
       }
     ]
   },
@@ -51,7 +57,10 @@ function App() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <RouterProvider router={routes} />
+
+        <RouterProvider router={routes} />
+        <Toaster richColors />
+      
     </QueryClientProvider>
   );
 }

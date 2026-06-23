@@ -1,6 +1,6 @@
 import { db } from '../../db';
-import { tables, tableSections } from '../../db/schema';
-import { eq, asc } from 'drizzle-orm';
+import { tables, tableSections, checks } from '../../db/schema';
+import { eq, asc, inArray } from 'drizzle-orm';
 import crypto from 'crypto';
 import type { 
   CreateTableInput, 
@@ -99,6 +99,12 @@ export class TablesService {
       throw new Error('Table not found');
     }
 
+    // Nullify tableId in checks referencing this table to prevent foreign key violation
+    db.update(checks)
+      .set({ tableId: null })
+      .where(eq(checks.tableId, id))
+      .run();
+
     db.delete(tables).where(eq(tables.id, id)).run();
     return { success: true };
   }
@@ -113,13 +119,30 @@ export class TablesService {
       throw new Error('Section not found');
     }
 
+    // Fetch all table IDs in this section to nullify their checks' tableId
+    const sectionTables = db.select({ id: tables.id })
+      .from(tables)
+      .where(eq(tables.tableSectionId, id))
+      .all();
+    
+    const tableIds = sectionTables.map(t => t.id);
+    if (tableIds.length > 0) {
+      db.update(checks)
+        .set({ tableId: null })
+        .where(inArray(checks.tableId, tableIds))
+        .run();
+    }
+
     db.delete(tables).where(eq(tables.tableSectionId, id)).run();
     db.delete(tableSections).where(eq(tableSections.id, id)).run();
     return { success: true };
   }
 
   async seedDefaultLayout() {
-    // 1. Delete all existing tables and sections
+    // 1. Nullify tableId in checks to prevent foreign key constraint violation
+    db.update(checks).set({ tableId: null }).run();
+
+    // 2. Delete all existing tables and sections
     db.delete(tables).run();
     db.delete(tableSections).run();
 

@@ -13,13 +13,15 @@ Running linters, formatters, and type checkers.
 
 Installing packages using pnpm --filter.
 
+Deleting temporary or helper scripts created during implementation if they are no longer needed.
+
 Ask first (Require user confirmation):
 
 Writing, dropping, or modifying database schemas.
 
 Starting long-running server processes (e.g., npm run dev). Note: You must stop and let the user test the server; do not hang the terminal.
 
-Deleting files or directories.
+Deleting core source files, configurations, databases, or directories.
 
 Git commit and push operations.
 

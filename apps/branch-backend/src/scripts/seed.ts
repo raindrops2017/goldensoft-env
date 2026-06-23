@@ -5,7 +5,7 @@ import {
   menuTypes, menuGroups, menuSubGroups, modifiersGroups, modifiers,
   menuItems, menuItemPrices, menuItemModifiers, menuItemPrinters,
   checkStatus, checkKind, checks, checkItems, checkItemModifiers,
-  closedDays, refreshTokens, syncQueue, shifts
+  closedDays, refreshTokens, syncQueue, shifts, voidReasons
 } from '../db/schema';
 import { eq } from 'drizzle-orm';
 import bcrypt from 'bcryptjs';
@@ -49,7 +49,8 @@ async function seed() {
       permissions,
       roles,
       checkStatus,
-      checkKind
+      checkKind,
+      voidReasons
     ];
 
     for (const table of tablesToClear) {
@@ -635,6 +636,14 @@ async function seed() {
       { id: 3, kind: 'Delivery' }
     ]);
 
+    console.log('🗑️ Seeding void reasons...');
+    await db.insert(voidReasons).values([
+      { id: 1, reason: "Customer changed mind", isWaste: false },
+      { id: 2, reason: "Kitchen mistake", isWaste: true },
+      { id: 3, reason: "Wrong entry", isWaste: false },
+      { id: 4, reason: "Spoiled / Dropped", isWaste: true }
+    ]);
+
     // 15. Seed Shifts & Transactions
     console.log('⏰ Seeding shifts & transaction history...');
     
@@ -663,271 +672,7 @@ async function seed() {
       closeTime: `${yesterdayDate}T23:30:00Z`
     });
 
-    // Seed 15 closed checks for yesterday
-    console.log('🧾 Seeding 15 closed checks for yesterday...');
-    for (let c = 1; c <= 15; c++) {
-      const chkId = crypto.randomUUID();
-      const kindId = (c % 3) + 1; // 1: Dining, 2: TakeAway, 3: Delivery
-      const table = seededTables[c % seededTables.length];
 
-      // Pick 2-4 random items
-      const checkItemsCount = 2 + (c % 3);
-      const itemsToInsert: { id: string; menuItemId: string; itemPrice: number; qty: number }[] = [];
-      let net = 0;
-
-      for (let i = 0; i < checkItemsCount; i++) {
-        const menuItem = insertedMenuItems[(c * 7 + i * 3) % insertedMenuItems.length];
-        const qty = 1 + (i % 2); // 1 or 2
-        itemsToInsert.push({
-          id: crypto.randomUUID(),
-          menuItemId: menuItem.id,
-          itemPrice: menuItem.price,
-          qty
-        });
-        net += menuItem.price * qty;
-      }
-
-      // Calculations
-      const serviceCharge = kindId === 1 ? Math.round(net * 0.12 * 100) / 100 : 0;
-      const tax = Math.round((net + serviceCharge) * 0.14 * 100) / 100;
-      const deliveryCharge = kindId === 3 ? 20 : 0;
-      const total = net + serviceCharge + tax + deliveryCharge;
-
-      await db.insert(checks).values({
-        id: chkId,
-        chkNo: 1000 + c,
-        transactionNo: `TXN-${yesterdayDate}-${1000 + c}`,
-        chkDate: yesterdayDate,
-        chkTime: `${12 + (c % 10)}:${10 + c * 3}:00`,
-        checkKindId: kindId,
-        tableId: kindId === 1 ? table.id : null,
-        tableName: kindId === 1 ? table.name : null,
-        net,
-        serviceCharge,
-        tax,
-        deliveryCharge,
-        total,
-        cash: c % 2 === 0 ? total : 0,
-        visa: c % 2 !== 0 ? total : 0,
-        paidCash: c % 2 === 0 ? total : 0,
-        chkStatusId: 2, // Paid
-        guestCount: 1 + (c % 4),
-        cashierId: cashierUserId,
-        waiterId: waiterUserId,
-        shift: 1,
-        createdAt: `${yesterdayDate}T${12 + (c % 10)}:${10 + c * 3}:00Z`,
-        updatedAt: `${yesterdayDate}T${13 + (c % 10)}:00:00Z`
-      });
-
-      for (const item of itemsToInsert) {
-        await db.insert(checkItems).values({
-          id: item.id,
-          chkId,
-          menuItemId: item.menuItemId,
-          itemPrice: item.itemPrice,
-          qty: item.qty,
-          createdAt: `${yesterdayDate}T12:00:00Z`,
-          updatedAt: `${yesterdayDate}T12:00:00Z`
-        });
-      }
-    }
-
-    // TODAY SHIFT (Open)
-    const todayDate = new Date().toISOString().split('T')[0];
-    const shiftTodayId = crypto.randomUUID();
-    await db.insert(shifts).values({
-      id: shiftTodayId,
-      shiftNumber: 2,
-      businessDate: todayDate,
-      openedBy: managerUserId,
-      startingCash: 1500,
-      status: 'open'
-    });
-
-    // Seed 5 open checks for today (active POS state)
-    console.log('🛒 Seeding 5 active open checks for today...');
-    
-    // Check 1: Dining - Table 3 (VIP Room)
-    const chkOpen1Id = crypto.randomUUID();
-    const table3 = seededTables[2]; // Table 3
-    const item1 = insertedMenuItems[5]; // Traditional/Molokhia
-    const item2 = insertedMenuItems[16]; // Shawarma
-    const net1 = item1.price * 1 + item2.price * 2;
-    const sc1 = Math.round(net1 * 0.12 * 100) / 100;
-    const tax1 = Math.round((net1 + sc1) * 0.14 * 100) / 100;
-    const total1 = net1 + sc1 + tax1;
-
-    await db.insert(checks).values({
-      id: chkOpen1Id,
-      chkNo: 2001,
-      transactionNo: `TXN-${todayDate}-2001`,
-      chkDate: todayDate,
-      chkTime: '13:00:00',
-      checkKindId: 1, // Dining
-      tableId: table3.id,
-      tableName: table3.name,
-      net: net1,
-      serviceCharge: sc1,
-      tax: tax1,
-      total: total1,
-      chkStatusId: 1, // Open
-      guestCount: 3,
-      cashierId: cashierUserId,
-      waiterId: waiterUserId,
-      shift: 2
-    });
-
-    const chkItem1Id = crypto.randomUUID();
-    const chkItem2Id = crypto.randomUUID();
-    await db.insert(checkItems).values([
-      { id: chkItem1Id, chkId: chkOpen1Id, menuItemId: item1.id, itemPrice: item1.price, qty: 1 },
-      { id: chkItem2Id, chkId: chkOpen1Id, menuItemId: item2.id, itemPrice: item2.price, qty: 2 }
-    ]);
-
-    // Add modifier to check item 1
-    const donenessMod = modifierItems.find(m => m.name.includes('Medium'))!;
-    const checkItemMod1Id = crypto.randomUUID();
-    const menuItemModRef = await db.query.menuItemModifiers.findFirst({
-      where: eq(menuItemModifiers.menuItemId, item1.id)
-    });
-    if (menuItemModRef) {
-      await db.insert(checkItemModifiers).values({
-        id: checkItemMod1Id,
-        checkItemId: chkItem1Id,
-        menuItemModifierId: menuItemModRef.id,
-        modifierId: donenessMod.id,
-        qty: 1
-      });
-    }
-
-    // Check 2: Dining - Table 5
-    const chkOpen2Id = crypto.randomUUID();
-    const table5 = seededTables[4];
-    const item3 = insertedMenuItems[40]; // Margherita Pizza
-    const item4 = insertedMenuItems[80]; // Fresh Mango Juice
-    const net2 = item3.price * 2 + item4.price * 2;
-    const sc2 = Math.round(net2 * 0.12 * 100) / 100;
-    const tax2 = Math.round((net2 + sc2) * 0.14 * 100) / 100;
-    const total2 = net2 + sc2 + tax2;
-
-    await db.insert(checks).values({
-      id: chkOpen2Id,
-      chkNo: 2002,
-      transactionNo: `TXN-${todayDate}-2002`,
-      chkDate: todayDate,
-      chkTime: '13:15:00',
-      checkKindId: 1, // Dining
-      tableId: table5.id,
-      tableName: table5.name,
-      net: net2,
-      serviceCharge: sc2,
-      tax: tax2,
-      total: total2,
-      chkStatusId: 1, // Open
-      guestCount: 2,
-      cashierId: cashierUserId,
-      waiterId: waiterUserId,
-      shift: 2
-    });
-
-    await db.insert(checkItems).values([
-      { id: crypto.randomUUID(), chkId: chkOpen2Id, menuItemId: item3.id, itemPrice: item3.price, qty: 2 },
-      { id: crypto.randomUUID(), chkId: chkOpen2Id, menuItemId: item4.id, itemPrice: item4.price, qty: 2 }
-    ]);
-
-    // Check 3: Dining - Table 12 (Terrace)
-    const chkOpen3Id = crypto.randomUUID();
-    const table12 = seededTables[11];
-    const item5 = insertedMenuItems[35]; // Classic Beef Burger
-    const item6 = insertedMenuItems[87]; // Egyptian Tea
-    const net3 = item5.price * 1 + item6.price * 1;
-    const sc3 = Math.round(net3 * 0.12 * 100) / 100;
-    const tax3 = Math.round((net3 + sc3) * 0.14 * 100) / 100;
-    const total3 = net3 + sc3 + tax3;
-
-    await db.insert(checks).values({
-      id: chkOpen3Id,
-      chkNo: 2003,
-      transactionNo: `TXN-${todayDate}-2003`,
-      chkDate: todayDate,
-      chkTime: '13:30:00',
-      checkKindId: 1, // Dining
-      tableId: table12.id,
-      tableName: table12.name,
-      net: net3,
-      serviceCharge: sc3,
-      tax: tax3,
-      total: total3,
-      chkStatusId: 1, // Open
-      guestCount: 1,
-      cashierId: cashierUserId,
-      waiterId: waiterUserId,
-      shift: 2
-    });
-
-    await db.insert(checkItems).values([
-      { id: crypto.randomUUID(), chkId: chkOpen3Id, menuItemId: item5.id, itemPrice: item5.price, qty: 1 },
-      { id: crypto.randomUUID(), chkId: chkOpen3Id, menuItemId: item6.id, itemPrice: item6.price, qty: 1 }
-    ]);
-
-    // Check 4: TakeAway Open Check
-    const chkOpen4Id = crypto.randomUUID();
-    const item7 = insertedMenuItems[12]; // Koshary Classic
-    const net4 = item7.price * 3;
-    const tax4 = Math.round(net4 * 0.14 * 100) / 100; // No service charge for takeaway
-    const total4 = net4 + tax4;
-
-    await db.insert(checks).values({
-      id: chkOpen4Id,
-      chkNo: 2004,
-      transactionNo: `TXN-${todayDate}-2004`,
-      chkDate: todayDate,
-      chkTime: '13:40:00',
-      checkKindId: 2, // TakeAway
-      net: net4,
-      tax: tax4,
-      total: total4,
-      chkStatusId: 1, // Open
-      guestCount: 1,
-      cashierId: cashierUserId,
-      shift: 2
-    });
-
-    await db.insert(checkItems).values([
-      { id: crypto.randomUUID(), chkId: chkOpen4Id, menuItemId: item7.id, itemPrice: item7.price, qty: 3 }
-    ]);
-
-    // Check 5: Delivery Open Check
-    const chkOpen5Id = crypto.randomUUID();
-    const item8 = insertedMenuItems[20]; // Seafood / Grilled Sea Bass
-    const net5 = item8.price * 2;
-    const tax5 = Math.round(net5 * 0.14 * 100) / 100; // No service charge for delivery
-    const deliveryChg = 20; // Maadi zone charge
-    const total5 = net5 + tax5 + deliveryChg;
-
-    await db.insert(checks).values({
-      id: chkOpen5Id,
-      chkNo: 2005,
-      transactionNo: `TXN-${todayDate}-2005`,
-      chkDate: todayDate,
-      chkTime: '13:45:00',
-      checkKindId: 3, // Delivery
-      net: net5,
-      tax: tax5,
-      deliveryCharge: deliveryChg,
-      total: total5,
-      chkStatusId: 1, // Open
-      guestCount: 1,
-      customerId: custSherifId,
-      deliveryCustomerId: delCustId,
-      deliveryPilotId: pilotAhmedId,
-      cashierId: cashierUserId,
-      shift: 2
-    });
-
-    await db.insert(checkItems).values([
-      { id: crypto.randomUUID(), chkId: chkOpen5Id, menuItemId: item8.id, itemPrice: item8.price, qty: 2 }
-    ]);
 
     console.log('🎉 Database seeding completed successfully!');
   } catch (error) {

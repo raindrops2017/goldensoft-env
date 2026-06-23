@@ -12,6 +12,9 @@ const PORT = env.PORT;
 import authRoutes from './modules/auth/auth.routes';
 import shiftRoutes from './modules/shifts/shift.routes';
 import tablesRoutes from './modules/tables/tables.routes';
+import menusRoutes from './modules/menus/menus.routes';
+import checksRoutes from './modules/checks/checks.routes';
+import optionsRoutes from './modules/options/options.routes';
 
 app.use(cors({
   origin: true,
@@ -23,6 +26,9 @@ app.use(cookieParser());
 app.use('/api/auth', authRoutes);
 app.use('/api/shifts', shiftRoutes);
 app.use('/api/tables', tablesRoutes);
+app.use('/api/menus', menusRoutes);
+app.use('/api/checks', checksRoutes);
+app.use('/api/options', optionsRoutes);
 
 app.get('/api/health', async (req: Request, res: Response) => {
   try {

@@ -1,0 +1,83 @@
+import { useMutation, useQuery } from '@tanstack/react-query';
+import { api } from '../../lib/api';
+import type { 
+  CreateCheckInput, 
+  AddCheckItemInput, 
+  VoidCheckItemInput, 
+  EntCheckItemInput,
+  CheckWithItems
+} from '@goldensoft/core-schemas';
+
+export const useOpenChecks = () => {
+  return useQuery({
+    queryKey: ['openChecks'],
+    queryFn: async () => {
+      const res = await api.get('/checks/open');
+      return res.data.data as CheckWithItems[];
+    },
+  });
+};
+
+export const useCheck = (id: string, options?: { enabled?: boolean }) => {
+  return useQuery({
+    queryKey: ['check', id],
+    queryFn: async () => {
+      const res = await api.get(`/checks/${id}`);
+      return res.data.data as CheckWithItems;
+    },
+    enabled: options?.enabled ?? true,
+  });
+};
+
+export const useChecksApi = () => {
+  const createCheck = useMutation({
+    mutationFn: async (data: CreateCheckInput) => {
+      const res = await api.post('/checks', data);
+      return res.data.data as CheckWithItems;
+    }
+  });
+
+  const addCheckItems = useMutation({
+    mutationFn: async ({ chkId, data }: { chkId: string, data: AddCheckItemInput }) => {
+      const res = await api.post(`/checks/${chkId}/items`, data);
+      return res.data.data as CheckWithItems;
+    }
+  });
+
+  const voidCheckItem = useMutation({
+    mutationFn: async ({ chkId, itemId, data }: { chkId: string, itemId: string, data: VoidCheckItemInput }) => {
+      const res = await api.put(`/checks/${chkId}/items/${itemId}/void`, data);
+      return res.data.data as CheckWithItems;
+    }
+  });
+
+  const entCheckItem = useMutation({
+    mutationFn: async ({ chkId, itemId, data }: { chkId: string, itemId: string, data: EntCheckItemInput }) => {
+      const res = await api.put(`/checks/${chkId}/items/${itemId}/ent`, data);
+      return res.data.data as CheckWithItems;
+    }
+  });
+
+  const voidCheck = useMutation({
+    mutationFn: async ({ chkId, reasonId }: { chkId: string, reasonId: string }) => {
+      const res = await api.put(`/checks/${chkId}/void`, { reasonId });
+      return res.data.data as CheckWithItems;
+    }
+  });
+
+  const updateCheckDiscount = useMutation({
+    mutationFn: async ({ chkId, data }: { chkId: string, data: { discount: number; discountPercent: number } }) => {
+      const res = await api.put(`/checks/${chkId}/discount`, data);
+      return res.data.data as CheckWithItems;
+    }
+  });
+
+  return {
+    createCheck,
+    addCheckItems,
+    voidCheckItem,
+    entCheckItem,
+    voidCheck,
+    updateCheckDiscount
+  };
+};
