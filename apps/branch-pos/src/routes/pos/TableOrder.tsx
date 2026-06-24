@@ -6,6 +6,7 @@ import { ShoppingCart } from "lucide-react";
 import { useAuthStore } from "@/store/useAuthStore";
 import type { MenuItem } from "@goldensoft/core-schemas";
 import { toast } from "sonner";
+import { SplitCheckDialog } from "@/components/pos/SplitCheckDialog";
 
 import KindTabs from "@/components/pos/KindTabs";
 import MenuGrid from "@/components/pos/MenuGrid";
@@ -19,13 +20,21 @@ import { useTableSections } from "@/hooks/useTables";
 import { useMenuApi } from "@/hooks/api/useMenuApi";
 import ModifierGrid from "@/components/pos/ModifierGrid";
 import { useOrderSession } from "@/hooks/pos/useOrderSession";
+import { useLanSocket } from "@/hooks/useLanSocket";
+import { useCurrentShift } from "@/hooks/api/useShiftApi";
+import { PERMISSIONS } from "@goldensoft/core-schemas";
+import { usePermissions } from "@/hooks/usePermissions";
+import { SupervisorOverrideDialog } from "@/components/pos/SupervisorOverrideDialog";
 
 export default function TableOrder() {
   const { tableNo } = useParams<{ tableNo: string }>();
   const user = useAuthStore(state => state.user);
+  const { acquireLock, releaseLock, sendKdsOrder, updateTableStatus } = useLanSocket();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
+  const { data: currentShift } = useCurrentShift();
+  const { hasPermission } = usePermissions();
 
   const [activeKind, setActiveKind] = useState<string>("");
   const [activeGroup, setActiveGroup] = useState<string | null>(null);
@@ -36,8 +45,12 @@ export default function TableOrder() {
   const [discountOpen, setDiscountOpen] = useState(false);
   const [payDrawerOpen, setPayDrawerOpen] = useState(false);
   const [isVoidDialogOpen, setIsVoidDialogOpen] = useState(false);
-  const [isPrinting] = useState(false);
+  const [isPrinting, setIsPrinting] = useState(false);
+  const [supervisorOpen, setSupervisorOpen] = useState(false);
+  const [supervisorError, setSupervisorError] = useState<string | null>(null);
+  const [supervisorRequiredPerm, setSupervisorRequiredPerm] = useState<string>("check:print");
   const [selectedParentItem, setSelectedParentItem] = useState<MenuItem | null>(null);
+  const [splitDialogOpen, setSplitDialogOpen] = useState(false);
 
   /* ── Queries ── */
   const checksApi = useChecksApi();
@@ -55,6 +68,28 @@ export default function TableOrder() {
     }
     return null;
   }, [sections, tableNo]);
+
+  // Operational Table Lock lifecycle
+  useEffect(() => {
+    if (!activeTable?.id) return;
+    let active = true;
+
+    const tryLock = async () => {
+      const locked = await acquireLock(activeTable.id);
+      if (active && !locked) {
+        navigate("/dine-in");
+      }
+    };
+
+    tryLock();
+
+    return () => {
+      active = false;
+      if (activeTable?.id) {
+        releaseLock(activeTable.id);
+      }
+    };
+  }, [activeTable?.id, acquireLock, releaseLock, navigate]);
 
   // Filter open checks for this table
   const tableChecks = openChecks?.filter(c => c.tableId === activeTable?.id) || [];
@@ -129,7 +164,7 @@ export default function TableOrder() {
 
   /* ── Check info ── */
   const checkInfo = {
-    formattedDate: new Date().toLocaleDateString("en-GB"),
+    formattedDate: new Date(fullCheck?.chkDate || currentShift?.businessDate).toLocaleDateString("en-GB"),
     formattedTime: new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }),
     checkNo: fullCheck?.chkNo ?? "N/A",
     tableNo,
@@ -226,6 +261,13 @@ export default function TableOrder() {
                  data: { discount: appliedDiscount, discountPercent }
                });
              }
+
+             // Broadcast socket events to sync other tablets and KDS screens
+             if (activeTable?.id) {
+               await sendKdsOrder(newCheck.id, unsentItems);
+               await updateTableStatus(activeTable.id, 'occupied', newCheck.chkNo);
+             }
+
              toast.success("Order sent!");
              queryClient.invalidateQueries({ queryKey: ["checks"] });
              queryClient.invalidateQueries({ queryKey: ["openChecks"] });
@@ -247,6 +289,13 @@ export default function TableOrder() {
                 data: { menuItemId: item.menuItemId, qty: item.qty, notes: item.notes || undefined, modifiers: item.modifiers }
              });
          }
+
+         // Broadcast socket events to sync other tablets and KDS screens
+         if (activeTable?.id) {
+           await sendKdsOrder(fullCheck.id, unsentItems);
+           await updateTableStatus(activeTable.id, 'occupied', fullCheck.chkNo);
+         }
+
          toast.success("Order sent!");
          queryClient.invalidateQueries({ queryKey: ["checks"] });
          queryClient.invalidateQueries({ queryKey: ["openChecks"] });
@@ -258,12 +307,80 @@ export default function TableOrder() {
     }
   };
 
-  const handlePrint = async () => {
-    toast("Printing not fully implemented");
+
+
+  const handlePrint = async (supervisorPinInput?: string | React.MouseEvent) => {
+    const supervisorPin = typeof supervisorPinInput === "string" ? supervisorPinInput : undefined;
+    if (!fullCheck) return;
+
+    const isPrinted = (fullCheck.printCount || 0) > 0;
+    const requiredPermission = isPrinted ? PERMISSIONS.CHECK_REPRINT : PERMISSIONS.CHECK_PRINT;
+    const userHasPerm = hasPermission(requiredPermission);
+
+    // Check if user has permission or supervisor PIN is provided
+    if (!userHasPerm && !supervisorPin) {
+      setSupervisorRequiredPerm(requiredPermission);
+      setSupervisorError(null);
+      setSupervisorOpen(true);
+      return;
+    }
+
+    setIsPrinting(true);
+    setSupervisorError(null);
+    try {
+      await checksApi.printCheck.mutateAsync({
+        chkId: fullCheck.id,
+        supervisorPin,
+      });
+
+      toast.success("Receipt printed successfully!");
+      setSupervisorOpen(false);
+      queryClient.invalidateQueries({ queryKey: ["openChecks"] });
+      queryClient.invalidateQueries({ queryKey: ["check", fullCheck.id] });
+      queryClient.invalidateQueries({ queryKey: ["tableSections"] });
+      navigate("/dine-in");
+    } catch (err: any) {
+      const errMsg = err.response?.data?.error || err.message || "Failed to print check";
+      if (supervisorPin) {
+        setSupervisorError(errMsg);
+      } else {
+        toast.error(errMsg);
+      }
+    } finally {
+      setIsPrinting(false);
+    }
   };
 
   return (
     <div className="flex flex-col h-screen w-full overflow-hidden min-h-0 gap-2 lg:gap-3 bg-slate-50 dark:bg-[#0a0510] p-2 lg:p-3">
+      {/* Tab Switcher for Multiple Checks */}
+      {tableChecks.length > 1 && (
+        <div className="flex items-center gap-2 overflow-x-auto shrink-0 select-none pb-1.5 scrollbar-thin">
+          <span className="text-xs font-black uppercase text-indigo-600 dark:text-indigo-400 tracking-wider px-2">
+            Active Bills:
+          </span>
+          {tableChecks.map((chk) => {
+            const isActive = chk.id === fullCheck?.id;
+            return (
+              <button
+                key={chk.id}
+                onClick={() => navigate(`/table/${tableNo}?chkNo=${chk.chkNo}`)}
+                className={`h-11 px-4 rounded-xl font-extrabold active:scale-95 transition-all text-xs shrink-0 select-none cursor-pointer flex items-center gap-1.5 ${
+                  isActive
+                    ? "bg-indigo-600 text-white shadow-lg shadow-indigo-900/30"
+                    : "bg-white dark:bg-[#151120] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-white/5"
+                }`}
+              >
+                <span>Check #{chk.chkNo}</span>
+                <span className="text-[10px] opacity-80">
+                  ({(chk.total || 0).toFixed(0)} EGP)
+                </span>
+              </button>
+            );
+          })}
+
+        </div>
+      )}
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-3xl border border-white/10 bg-black/20 p-2 backdrop-blur-md sm:p-2.5 lg:p-3">
         <div className="flex min-h-0 flex-1 items-stretch gap-2 overflow-hidden sm:gap-4">
           <div className="grid min-h-0 min-w-0 flex-1 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden rounded-2xl border bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800">
@@ -337,10 +454,10 @@ export default function TableOrder() {
                 hasItems={localCart.length > 0}
                 onSend={handleSend}
                 onDiscount={() => setDiscountOpen(true)}
-                onPrint={handlePrint}
+                onPrint={() => handlePrint()}
                 onPay={() => setPayDrawerOpen(true)}
                 onVoid={handleVoidCheck}
-                onSplit={() => toast("Split - to be implemented")}
+                onSplit={() => setSplitDialogOpen(true)}
               />
             </div>
           </div>
@@ -419,6 +536,39 @@ export default function TableOrder() {
         onConfirm={(reasonId: number) => {
            handleConfirmVoid(reasonId);
         }}
+      />
+
+      {splitDialogOpen && fullCheck && (
+        <SplitCheckDialog
+          open={splitDialogOpen}
+          onClose={() => setSplitDialogOpen(false)}
+          check={fullCheck}
+          onSplitConfirm={async (payload) => {
+            try {
+              await checksApi.splitCheck.mutateAsync({
+                chkId: fullCheck.id,
+                data: payload as any
+              });
+              toast.success("Check split successfully!");
+              setSplitDialogOpen(false);
+              queryClient.invalidateQueries({ queryKey: ["openChecks"] });
+              queryClient.invalidateQueries({ queryKey: ["checks"] });
+              queryClient.invalidateQueries({ queryKey: ["check", fullCheck.id] });
+              navigate("/dine-in");
+            } catch (err: any) {
+              toast.error(err.response?.data?.error || err.message || "Failed to split check");
+            }
+          }}
+        />
+      )}
+
+      <SupervisorOverrideDialog
+        open={supervisorOpen}
+        onClose={() => setSupervisorOpen(false)}
+        onSubmit={(pin) => handlePrint(pin)}
+        isLoading={isPrinting}
+        error={supervisorError}
+        permissionRequired={supervisorRequiredPerm}
       />
     </div>
   );

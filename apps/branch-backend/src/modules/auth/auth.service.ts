@@ -45,6 +45,9 @@ export class AuthService {
       throw new Error('User not found or inactive');
     }
 
+    // Delete the old refresh token to enforce single-use and prevent database bloat
+    db.delete(refreshTokens).where(eq(refreshTokens.id, tokenRecord.id)).run();
+
     return this.generateTokensForUser(matchedUser);
   }
 

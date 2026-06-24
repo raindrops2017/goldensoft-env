@@ -1,0 +1,30 @@
+GOLDEN SOFT RESTAURANT
+مطعم جولدن سوفت
+Cairo, Egypt - Ph: 02-23456789
+==========================================
+Date: 2026-06-22            Time: 03:27:03
+Check #: 1021                   Table: T33
+Waiter: #71dc               Cashier: #71dc
+Guests: 1                        Prints: 4
+------------------------------------------
+Item / الصنف           Qty x Price   Total
+------------------------------------------
+Cheese Burger / تشيز برجر
+  1 x 135.00                    135.00 EGP
+ + Jalapeno / هالبينو
+    1 x 15.00                    15.00 EGP
+ + Medium / وسط
+    1 x 0.00                      0.00 EGP
+------------------------------------------
+Subtotal / المجموع الفرعي       191.52 EGP
+Service Charge / الخدمة         +18.00 EGP
+Tax / الضريبة                   +23.52 EGP
+==========================================
+NET TOTAL / الإجمالي            150.00 EGP
+==========================================
+Thank you for dining with us!
+شكراً لزيارتكم!
+   Check #1021 - Powered by GoldenSoft
+
+
+

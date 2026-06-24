@@ -381,21 +381,7 @@ function CartItems({
               <p className="text-xs xl:text-sm font-medium truncate dark:text-white">
                 {displayName}
               </p>
-              {d.notes && (
-                <p className="text-[10px] xl:text-xs text-blue-600 dark:text-blue-400 truncate mt-0.5 italic">
-                  "{d.notes}"
-                </p>
-              )}
-              {d.modifiers && d.modifiers.length > 0 && (
-                <div className="mt-1 space-y-0.5">
-                  {d.modifiers.map((mod, idx) => (
-                    <div key={idx} className="flex justify-between items-center text-[10px] xl:text-[11px] text-gray-500 dark:text-gray-400">
-                      <span className="truncate pr-2">+ {mod.name || "Modifier"}</span>
-                      {mod.price > 0 && <span>{mod.price.toFixed(2)}</span>}
-                    </div>
-                  ))}
-                </div>
-              )}
+              
               <div className="flex items-center justify-between mt-1 text-[10px] xl:text-xs text-gray-500 gap-1 xl:gap-2">
                 <div className="flex items-center gap-1 xl:gap-2">
                   <div className="inline-flex items-center rounded-lg border border-gray-200 dark:border-gray-600 overflow-hidden">
@@ -450,6 +436,21 @@ function CartItems({
                   {((Number(d.qty) || 0) * ((Number(d.itemPrice) || 0) + (d.modifiers?.reduce((sum, m) => sum + (m.price * m.qty), 0) || 0)))}
                 </span>
               </div>
+              {d.notes && (
+                <p className="text-[10px] xl:text-xs text-blue-600 dark:text-blue-400 truncate mt-0.5 italic">
+                  "{d.notes}"
+                </p>
+              )}
+              {d.modifiers && d.modifiers.length > 0 && (
+                <div className="mt-1 space-y-0.5">
+                  {d.modifiers.map((mod, idx) => (
+                    <div key={idx} className="flex justify-between items-center text-[10px] xl:text-[11px] text-gray-500 dark:text-gray-400">
+                      <span className="truncate pr-2">+ {mod.name || "Modifier"}</span>
+                      {mod.price > 0 && <span>{mod.price.toFixed(2)}</span>}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
             <div className="flex flex-col gap-1 justify-between">
               <button

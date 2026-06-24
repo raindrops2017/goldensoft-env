@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { ShoppingBag } from "lucide-react";
@@ -20,17 +21,25 @@ import ModifierGrid from "@/components/pos/ModifierGrid";
 import { useChecksApi, useOpenChecks, useCheck } from "@/hooks/api/useChecksApi";
 import { useMenuApi } from "@/hooks/api/useMenuApi";
 import { useOrderSession } from "@/hooks/pos/useOrderSession";
+import { PERMISSIONS } from "@goldensoft/core-schemas";
+import { usePermissions } from "@/hooks/usePermissions";
+import { SupervisorOverrideDialog } from "@/components/pos/SupervisorOverrideDialog";
 
 export default function TakeawayOrder() {
   const user = useAuthStore(state => state.user);
   const queryClient = useQueryClient();
+  const { hasPermission } = usePermissions();
+  const navigate = useNavigate();
 
   const [activeKind, setActiveKind] = useState<string>("");
   const [activeGroup, setActiveGroup] = useState<string | null>(null);
   const [activeSubGroup, setActiveSubGroup] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<"groups" | "subGroups" | "items" | "modifiers">("groups");
 
-  const [isPrinting] = useState(false);
+  const [isPrinting, setIsPrinting] = useState(false);
+  const [supervisorOpen, setSupervisorOpen] = useState(false);
+  const [supervisorError, setSupervisorError] = useState<string | null>(null);
+  const [supervisorRequiredPerm, setSupervisorRequiredPerm] = useState<string>("check:print");
   const [discountOpen, setDiscountOpen] = useState(false);
   const [payDrawerOpen, setPayDrawerOpen] = useState(false);
   const [checksDialogOpen, setChecksDialogOpen] = useState(false);
@@ -208,8 +217,44 @@ export default function TakeawayOrder() {
     }
   };
 
-  const handlePrint = () => {
-    toast("Printing not fully implemented");
+  const handlePrint = async (supervisorPinInput?: string | React.MouseEvent) => {
+    const supervisorPin = typeof supervisorPinInput === "string" ? supervisorPinInput : undefined;
+    if (!fullCheck) return;
+
+    const isPrinted = (fullCheck.printCount || 0) > 0;
+    const requiredPermission = isPrinted ? PERMISSIONS.CHECK_REPRINT : PERMISSIONS.CHECK_PRINT;
+
+    // Check if user has permission or supervisor PIN is provided
+    if (!hasPermission(requiredPermission) && !supervisorPin) {
+      setSupervisorRequiredPerm(requiredPermission);
+      setSupervisorError(null);
+      setSupervisorOpen(true);
+      return;
+    }
+
+    setIsPrinting(true);
+    setSupervisorError(null);
+    try {
+      await checksApi.printCheck.mutateAsync({
+        chkId: fullCheck.id,
+        supervisorPin,
+      });
+
+      toast.success("Receipt printed successfully!");
+      setSupervisorOpen(false);
+      queryClient.invalidateQueries({ queryKey: ["openChecks"] });
+      queryClient.invalidateQueries({ queryKey: ["check", fullCheck.id] });
+      navigate("/dine-in");
+    } catch (err: any) {
+      const errMsg = err.response?.data?.error || err.message || "Failed to print check";
+      if (supervisorPin) {
+        setSupervisorError(errMsg);
+      } else {
+        toast.error(errMsg);
+      }
+    } finally {
+      setIsPrinting(false);
+    }
   };
 
   const takeawayChecks = openChecks?.filter(c => c.checkKindId === 3) || [];
@@ -333,7 +378,7 @@ export default function TakeawayOrder() {
                 hasItems={localCart.length > 0}
                 onSend={handleSend}
                 onDiscount={() => setDiscountOpen(true)}
-                onPrint={handlePrint}
+                onPrint={() => handlePrint()}
                 onPay={() => setPayDrawerOpen(true)}
                 onVoid={() => toast("Void functionality to be implemented")}
                 onSplit={() => toast("Split to be implemented")}
@@ -399,6 +444,15 @@ export default function TakeawayOrder() {
            setReopenedCheckId(check.id);
            setChecksDialogOpen(false);
         }}
+      />
+
+      <SupervisorOverrideDialog
+        open={supervisorOpen}
+        onClose={() => setSupervisorOpen(false)}
+        onSubmit={(pin) => handlePrint(pin)}
+        isLoading={isPrinting}
+        error={supervisorError}
+        permissionRequired={supervisorRequiredPerm}
       />
     </div>
   );

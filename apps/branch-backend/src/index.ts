@@ -3,8 +3,9 @@ import cors from 'cors';
 import { db } from './db';
 import { sql } from 'drizzle-orm';
 import { env } from './env';
-
 import cookieParser from 'cookie-parser';
+import http from 'http';
+import { initializeSocketServer } from './modules/sockets/socket.server';
 
 const app = express();
 const PORT = env.PORT;
@@ -40,7 +41,13 @@ app.get('/api/health', async (req: Request, res: Response) => {
     res.status(500).json({ success: false, error: 'Database connection failed' });
   }
 });
+const server = http.createServer(app);
 
-app.listen(PORT, () => {
+// Initialize LAN Socket.io Server
+const io = initializeSocketServer(server);
+app.set('io', io);
+
+server.listen(PORT, () => {
   console.log(`Branch backend running on port ${PORT}`);
 });
+

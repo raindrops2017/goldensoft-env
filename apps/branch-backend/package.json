@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@goldensoft/core-schemas": "workspace:*",
+    "@goldensoft/socket-contracts": "workspace:*",
     "bcryptjs": "^3.0.3",
     "better-sqlite3": "^12.11.1",
     "cookie-parser": "^1.4.7",
@@ -20,7 +21,9 @@
     "dotenv": "^17.4.2",
     "drizzle-orm": "^0.45.2",
     "express": "^5.2.1",
+    "iconv-lite": "^0.7.2",
     "jsonwebtoken": "^9.0.3",
+    "socket.io": "^4.8.1",
     "zod": "^4.4.3"
   },
   "devDependencies": {

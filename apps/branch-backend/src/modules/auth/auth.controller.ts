@@ -14,7 +14,12 @@ export class AuthController {
       const { pin } = parsed.data;
       const { token, refreshToken, user } = await authService.loginWithPin(pin);
 
-      res.cookie('refreshToken', refreshToken, { httpOnly: true, sameSite: 'strict' });
+      const days = parseInt(process.env.REFRESH_TOKEN_EXPIRES_IN || '7');
+      res.cookie('refreshToken', refreshToken, { 
+        httpOnly: true, 
+        sameSite: 'lax',
+        maxAge: days * 24 * 60 * 60 * 1000
+      });
       res.json({ success: true, data: { accessToken: token, user } });
     } catch (error: any) {
       if (error.message === 'Invalid PIN') {
@@ -36,7 +41,12 @@ export class AuthController {
 
       const { token, refreshToken, user } = await authService.refresh(refreshTokenStr);
 
-      res.cookie('refreshToken', refreshToken, { httpOnly: true, sameSite: 'strict' });
+      const days = parseInt(process.env.REFRESH_TOKEN_EXPIRES_IN || '7');
+      res.cookie('refreshToken', refreshToken, { 
+        httpOnly: true, 
+        sameSite: 'lax',
+        maxAge: days * 24 * 60 * 60 * 1000
+      });
       res.json({ success: true, data: { accessToken: token, user } });
     } catch (error: any) {
       if (error.message === 'Invalid refresh token' || error.message === 'Refresh token expired' || error.message === 'User not found or inactive') {

@@ -1,0 +1,26 @@
+GOLDEN SOFT RESTAURANT
+مطعم جولدن سوفت
+Cairo, Egypt - Ph: 02-23456789
+==========================================
+Date: 2026-06-22            Time: 03:13:31
+Check #: 1020                   Table: T10
+Waiter: #71dc               Cashier: #71dc
+Guests: 1                        Prints: 2
+------------------------------------------
+Item / الصنف           Qty x Price   Total
+------------------------------------------
+Tahini Salad / سلطة طحينة
+  1 x 25.00                      25.00 EGP
+------------------------------------------
+Subtotal / المجموع الفرعي        31.92 EGP
+Service Charge / الخدمة          +3.00 EGP
+Tax / الضريبة                    +3.92 EGP
+==========================================
+NET TOTAL / الإجمالي             25.00 EGP
+==========================================
+Thank you for dining with us!
+شكراً لزيارتكم!
+   Check #1020 - Powered by GoldenSoft
+
+
+

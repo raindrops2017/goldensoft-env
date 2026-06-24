@@ -1,21 +1,44 @@
 const SplitedTable = () => (
-    <svg xmlns="http://www.w3.org/2000/svg" width={64} height={64}>
-      <path
-        fill="#4E8DCA"
-        d="M1 1h19l-4 5c1.321 2.932 2.746 4.987 5.04 7.234l1.757 1.739 1.828 1.777 1.852 1.824C27.98 20.054 29.489 21.528 31 23c2.932-1.321 4.987-2.746 7.234-5.04l1.739-1.757 1.777-1.828 1.824-1.852C45.054 11.02 46.528 9.511 48 8a56.54 56.54 0 0 0-4-7h19v19l-5-4c-8.095 3.832-15.752 10.037-20 18-2.204 9.451-1.648 19.38-1 29H27l.194-2.376c1.463-17.286 1.463-17.286-5.268-32.558C17.652 23.601 12.993 19.638 8 16a56.54 56.54 0 0 0-7 4V1Z"
-      />
-      <path
-        fill="#B2D9FC"
-        d="M3 3h12l-2 5 1.912 1.896c2.337 2.32 4.672 4.642 7.005 6.966 1.011 1.006 2.023 2.011 3.035 3.015 1.455 1.442 2.906 2.888 4.357 4.334l2.65 2.634c3.45 3.642 3.16 5.971 3.139 10.913l-.005 2.01c-.005 2.118-.018 4.238-.03 6.357A3916.611 3916.611 0 0 1 35 61h-6l.226-2.253C30.68 41.63 30.68 41.63 23.48 26.687 18.682 21.703 13.495 17.201 8 13l-5 2V3Z"
-      />
-      <path
-        fill="#4989C8"
-        d="M1 1h19l-4 5c1.321 2.932 2.746 4.987 5.04 7.234l1.757 1.739 1.828 1.777 1.852 1.824C27.98 20.054 29.489 21.528 31 23c2.932-1.321 4.987-2.746 7.234-5.04l1.739-1.757 1.777-1.828 1.824-1.852C45.054 11.02 46.528 9.511 48 8a56.54 56.54 0 0 0-4-7h19v19l-7-5 1-2 3 1 1-11-11 1 2 4-19 19c-3.61-1.805-5.356-3.12-8.11-5.914l-2.285-2.305-2.355-2.406-2.402-2.43C15.894 11.968 13.945 9.986 12 8l2-4L3 3l1 11h3a317.62 317.62 0 0 1-5 6H1V1Z"
-      />
-      <path
-        fill="#D8EBFB"
-        d="M49 3h12v12l-5-2-19 19-4-5c5.55-6.784 11.764-12.855 18-19l-2-5Z"
-      />
-    </svg>
-  )
-  export default SplitedTable
+  <svg xmlns="http://www.w3.org/2000/svg" width={64} height={64} viewBox="0 0 64 64" className="w-full h-full select-none">
+    <defs>
+      <g id="chair">
+        {/* Backrest */}
+        <rect x="-8" y="-28" width="16" height="5" rx="2" fill="#475569" />
+        {/* Backrest support posts */}
+        <path d="M -5 -23 L -5 -18 M 5 -23 L 5 -18" stroke="#475569" strokeWidth="1.5" strokeLinecap="round" />
+        {/* Seat Cushion */}
+        <path d="M -10 -18 C -10 -21 10 -21 10 -18 L 8 -11 C 8 -9 -8 -9 -8 -11 Z" fill="#334155" />
+      </g>
+    </defs>
+
+    {/* Chairs around the table */}
+    <use href="#chair" transform="translate(32, 32) rotate(0)" />
+    <use href="#chair" transform="translate(32, 32) rotate(120)" />
+    <use href="#chair" transform="translate(32, 32) rotate(240)" />
+
+    {/* Wedges of the table */}
+    {/* Top Wedge: center translated up */}
+    <path
+      d="M 32 29 L 18.14 21 A 16 16 0 0 1 45.86 21 Z"
+      fill="#f43f5e"
+      stroke="#fff"
+      strokeWidth="1"
+    />
+    {/* Bottom Right Wedge: center translated down-right */}
+    <path
+      d="M 34.6 33.5 L 48.46 25.5 A 16 16 0 0 1 34.6 49.5 Z"
+      fill="#e11d48"
+      stroke="#fff"
+      strokeWidth="1"
+    />
+    {/* Bottom Left Wedge: center translated down-left */}
+    <path
+      d="M 29.4 33.5 L 29.4 49.5 A 16 16 0 0 1 15.54 25.5 Z"
+      fill="#fda4af"
+      stroke="#fff"
+      strokeWidth="1"
+    />
+  </svg>
+);
+
+export default SplitedTable;

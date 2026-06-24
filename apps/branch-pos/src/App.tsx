@@ -9,6 +9,7 @@ import TakeawayOrder from './routes/pos/TakeawayOrder';
 import { useThemeStore } from './store/useThemeStore';
 import { useEffect } from 'react';
 import { Toaster } from 'sonner';
+import { LanSocketProvider } from './hooks/useLanSocket';
 
 const queryClient = new QueryClient();
 
@@ -57,10 +58,10 @@ function App() {
 
   return (
     <QueryClientProvider client={queryClient}>
-
+      <LanSocketProvider>
         <RouterProvider router={routes} />
         <Toaster richColors />
-      
+      </LanSocketProvider>
     </QueryClientProvider>
   );
 }

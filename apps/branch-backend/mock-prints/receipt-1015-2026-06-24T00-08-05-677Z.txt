@@ -1,0 +1,26 @@
+GOLDEN SOFT RESTAURANT
+مطعم جولدن سوفت
+Cairo, Egypt - Ph: 02-23456789
+==========================================
+Date: 2026-06-22            Time: 01:31:58
+Check #: 1015                   Table: T44
+Waiter: #5838               Cashier: #5838
+Guests: 1                        Prints: 2
+------------------------------------------
+Item / الصنف           Qty x Price   Total
+------------------------------------------
+Mini Margherita Pizza / ميني بيتزا مارجريتا
+  1 x 80.00                      80.00 EGP
+------------------------------------------
+Subtotal / المجموع الفرعي       102.14 EGP
+Service Charge / الخدمة          +9.60 EGP
+Tax / الضريبة                   +12.54 EGP
+==========================================
+NET TOTAL / الإجمالي             80.00 EGP
+==========================================
+Thank you for dining with us!
+شكراً لزيارتكم!
+   Check #1015 - Powered by GoldenSoft
+
+
+

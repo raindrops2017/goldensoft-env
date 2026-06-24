@@ -107,7 +107,6 @@ export default function MenuFooter({
   const canSend = can(PERMISSIONS.CHECK_CREATE);
   const canDiscount = can(PERMISSIONS.DISCOUNT_APPLY);
   const canVoid = can(PERMISSIONS.CHECK_VOID);
-  const canPrint = can(PERMISSIONS.CHECK_PRINT);
   const canPay = can(PERMISSIONS.CHECK_CLOSE);
 
   const tooltipNoAccess = "You don't have access to this";
@@ -151,8 +150,7 @@ export default function MenuFooter({
           </button>
           <button
             onClick={onPrint}
-            disabled={isPrinting || isOtherActionsDisabled || !canPrint}
-            title={!canPrint ? tooltipNoAccess : undefined}
+            disabled={isPrinting || isOtherActionsDisabled}
             className="relative flex items-center justify-center gap-1 py-2 lg:py-3 bg-gray-600 hover:bg-gray-700 text-white rounded-xl text-sm font-medium transition disabled:opacity-50"
           >
             {isPrinting ? (

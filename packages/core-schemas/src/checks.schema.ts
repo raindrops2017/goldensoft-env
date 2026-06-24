@@ -72,6 +72,7 @@ export const CheckItemSchema = z.object({
   chkId: z.string(),
   menuItemId: z.string(),
   itemName: z.string().optional(),
+  arabicName: z.string().optional(),
   itemPrice: z.number().default(0),
   qty: z.number().default(1),
   notes: z.string().nullable().optional(),
@@ -126,3 +127,21 @@ export const EntCheckItemInputSchema = z.object({
   entReason: z.string().optional(), // Adding a reason field just in case
 });
 export type EntCheckItemInput = z.infer<typeof EntCheckItemInputSchema>;
+
+export const SplitCheckInputSchema = z.object({
+  type: z.enum(['items', 'evenly']),
+  itemsSplits: z.array(
+    z.object({
+      guestCount: z.number().int().min(1).default(1),
+      tableId: z.string().nullable().optional(),
+      items: z.array(
+        z.object({
+          checkItemId: z.string(),
+          qty: z.number().positive(),
+        })
+      ),
+    })
+  ).optional(),
+  evenSplitCount: z.number().int().min(2).max(100).optional(),
+});
+export type SplitCheckInput = z.infer<typeof SplitCheckInputSchema>;

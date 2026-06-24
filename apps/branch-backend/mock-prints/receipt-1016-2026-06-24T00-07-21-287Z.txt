@@ -1,0 +1,26 @@
+GOLDEN SOFT RESTAURANT
+مطعم جولدن سوفت
+Cairo, Egypt - Ph: 02-23456789
+==========================================
+Date: 2026-06-22            Time: 01:35:12
+Check #: 1016                   Table: T29
+Waiter: #5838               Cashier: #5838
+Guests: 1                        Prints: 2
+------------------------------------------
+Item / الصنف           Qty x Price   Total
+------------------------------------------
+Fish Fingers with Fries / أصابع السمك مع بطاطس
+  1 x 95.00                      95.00 EGP
+------------------------------------------
+Subtotal / المجموع الفرعي       121.30 EGP
+Service Charge / الخدمة         +11.40 EGP
+Tax / الضريبة                   +14.90 EGP
+==========================================
+NET TOTAL / الإجمالي             95.00 EGP
+==========================================
+Thank you for dining with us!
+شكراً لزيارتكم!
+   Check #1016 - Powered by GoldenSoft
+
+
+

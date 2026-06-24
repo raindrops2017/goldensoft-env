@@ -5,7 +5,8 @@ import type {
   AddCheckItemInput, 
   VoidCheckItemInput, 
   EntCheckItemInput,
-  CheckWithItems
+  CheckWithItems,
+  SplitCheckInput
 } from '@goldensoft/core-schemas';
 
 export const useOpenChecks = () => {
@@ -72,12 +73,28 @@ export const useChecksApi = () => {
     }
   });
 
+  const splitCheck = useMutation({
+    mutationFn: async ({ chkId, data }: { chkId: string, data: SplitCheckInput }) => {
+      const res = await api.post(`/checks/${chkId}/split`, data);
+      return res.data.data as { sourceCheck: CheckWithItems, splitChecks: CheckWithItems[] };
+    }
+  });
+
+  const printCheck = useMutation({
+    mutationFn: async ({ chkId, supervisorPin, printerId }: { chkId: string, supervisorPin?: string, printerId?: string }) => {
+      const res = await api.post(`/checks/${chkId}/print`, { supervisorPin, printerId });
+      return res.data.data as CheckWithItems;
+    }
+  });
+
   return {
     createCheck,
     addCheckItems,
     voidCheckItem,
     entCheckItem,
     voidCheck,
-    updateCheckDiscount
+    updateCheckDiscount,
+    splitCheck,
+    printCheck
   };
 };

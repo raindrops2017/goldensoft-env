@@ -1,0 +1,32 @@
+GOLDEN SOFT RESTAURANT
+مطعم جولدن سوفت
+Cairo, Egypt - Ph: 02-23456789
+==========================================
+Date: 2026-06-22            Time: 12:18:21
+Check #: 1022                    Table: T3
+Waiter: #5838               Cashier: #5838
+Guests: 1                        Prints: 2
+------------------------------------------
+Item / الصنف           Qty x Price   Total
+------------------------------------------
+Tabbouleh / تبولة لبناني
+  1 x 55.00                      55.00 EGP
+ + Garlic Sauce / تومية
+    1 x 10.00                    10.00 EGP
+Lentil Soup / شوربة عدس
+  1 x 45.00                      45.00 EGP
+Orzo Soup / شوربة لسان عصفور
+  1 x 40.00                      40.00 EGP
+------------------------------------------
+Subtotal / المجموع الفرعي       191.52 EGP
+Service Charge / الخدمة         +18.00 EGP
+Tax / الضريبة                   +23.52 EGP
+==========================================
+NET TOTAL / الإجمالي            150.00 EGP
+==========================================
+Thank you for dining with us!
+شكراً لزيارتكم!
+   Check #1022 - Powered by GoldenSoft
+
+
+

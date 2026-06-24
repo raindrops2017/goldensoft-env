@@ -1,0 +1,30 @@
+GOLDEN SOFT RESTAURANT
+مطعم جولدن سوفت
+Cairo, Egypt - Ph: 02-23456789
+==========================================
+Date: 2026-06-22            Time: 00:22:54
+Check #: 1007                    Table: T9
+Waiter: #5838               Cashier: #5838
+Guests: 1                        Prints: 2
+------------------------------------------
+Item / الصنف           Qty x Price   Total
+------------------------------------------
+Sambousek Cheese / سمبوسك جبنة
+  1 x 60.00                      60.00 EGP
+Orzo Soup / شوربة لسان عصفور
+  1 x 40.00                      40.00 EGP
+Pasta Bolognese / مكرونة بولونيز
+  1 x 110.00                    110.00 EGP
+------------------------------------------
+Subtotal / المجموع الفرعي       268.13 EGP
+Service Charge / الخدمة         +25.20 EGP
+Tax / الضريبة                   +32.93 EGP
+==========================================
+NET TOTAL / الإجمالي            210.00 EGP
+==========================================
+Thank you for dining with us!
+شكراً لزيارتكم!
+   Check #1007 - Powered by GoldenSoft
+
+
+
