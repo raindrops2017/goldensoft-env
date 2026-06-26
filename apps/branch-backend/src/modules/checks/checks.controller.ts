@@ -154,6 +154,68 @@ export class ChecksController {
       res.status(400).json({ success: false, error: error.message });
     }
   }
+
+  async transferTable(req: Request, res: Response): Promise<void> {
+    try {
+      const checkId = req.params.id as string;
+      const { targetTableId, supervisorPin } = req.body;
+      const userId = req.user?.userId || 'system';
+
+      if (!targetTableId) {
+        res.status(400).json({ success: false, error: 'targetTableId is required' });
+        return;
+      }
+
+      const result = await checksService.transferTable(checkId, targetTableId, userId, supervisorPin);
+
+      // Emit socket updates
+      const io = req.app.get('io');
+      if (io) {
+        if (result.oldTableId) {
+          io.emit('table:status:changed', { tableId: result.oldTableId, status: 'free' });
+        }
+        if (result.check.tableId) {
+          io.emit('table:status:changed', { 
+            tableId: result.check.tableId, 
+            status: 'occupied', 
+            chkNo: result.check.chkNo 
+          });
+        }
+      }
+
+      res.json({ success: true, data: result.check });
+    } catch (error: any) {
+      res.status(400).json({ success: false, error: error.message });
+    }
+  }
+
+  async transferWaiter(req: Request, res: Response): Promise<void> {
+    try {
+      const checkId = req.params.id as string;
+      const { targetWaiterId, supervisorPin } = req.body;
+      const userId = req.user?.userId || 'system';
+
+      if (!targetWaiterId) {
+        res.status(400).json({ success: false, error: 'targetWaiterId is required' });
+        return;
+      }
+
+      const updatedCheck = await checksService.transferWaiter(checkId, targetWaiterId, userId, supervisorPin);
+      
+      const io = req.app.get('io');
+      if (io && updatedCheck && updatedCheck.tableId) {
+        io.emit('table:status:changed', { 
+          tableId: updatedCheck.tableId, 
+          status: (updatedCheck.printCount || 0) > 0 ? 'printed' : 'occupied',
+          chkNo: updatedCheck.chkNo 
+        });
+      }
+
+      res.json({ success: true, data: updatedCheck });
+    } catch (error: any) {
+      res.status(400).json({ success: false, error: error.message });
+    }
+  }
 }
 
 export const checksController = new ChecksController();

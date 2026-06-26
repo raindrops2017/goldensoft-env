@@ -1,6 +1,6 @@
-import { useState, useMemo, useEffect, useRef } from 'react';
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { usePermissions } from '../../../hooks/usePermissions';
+import { usePermissions } from '@/hooks/usePermissions';
 import {
   useTableSections,
   useCreateSection,
@@ -9,58 +9,51 @@ import {
   useDeleteTable,
   useDeleteSection,
   useSeedDefaultLayout
-} from '../../../hooks/useTables';
-import { useOpenChecks } from '../../../hooks/api/useChecksApi';
-import { useCurrentShift } from '../../../hooks/api/useShiftApi';
+} from '@/hooks/useTables';
+import { useOpenChecks } from '@/hooks/api/useChecksApi';
+import { useCurrentShift } from '@/hooks/api/useShiftApi';
 import { PERMISSIONS } from '@goldensoft/core-schemas';
-import type { Table, TableShape } from '@goldensoft/core-schemas';
-import {
-  Plus,
-  Trash2,
-  Copy,
-  Layers,
-  Lock,
-  Unlock,
-  Sparkles,
-  Home,
-  Trees,
-  UserCheck,
-  Utensils,
-  X,
-  Settings
-} from 'lucide-react';
-import { Button } from '../../../components/ui/button';
-import { ConfirmationDialog } from '../../../components/ui/ConfirmationDialog';
-import { PinPad } from '../../../components/auth/PinPad';
-import { useMutation } from '@tanstack/react-query';
-import { api } from '../../../lib/api';
-import { useAuthStore } from '../../../store/useAuthStore';
-import type { LoginResponse } from '@goldensoft/core-schemas';
+import { useLanSocket } from '@/hooks/useLanSocket';
+import { TableChecksSelectionDialog } from '@/components/pos-ordering/TableChecksSelectionDialog';
+import type { Table } from '@goldensoft/core-schemas';
+import { Home, Trees, UserCheck, Utensils, Layers } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { ConfirmationDialog } from '@/components/ui/ConfirmationDialog';
+import { toast } from 'sonner';
 
 // Import SVG components provided by the user
-import FreeTable from '../../../icons/Free-Table';
-import OccTable from '../../../icons/Occ-Table';
-import PrintedTable from '../../../icons/Printed-Table';
-import SplitedTable from '../../../icons/Splited-Table';
+import FreeTable from '@/icons/Free-Table';
+import OccTable from '@/icons/Occ-Table';
+import PrintedTable from '@/icons/Printed-Table';
+import SplitedTable from '@/icons/Splited-Table';
+
+// Import split subcomponents
+import { FloorPlanHeader } from '@/components/pos-floor-plan/FloorPlanHeader';
+import { FloorMobileGrid } from '@/components/pos-floor-plan/FloorMobileGrid';
+import { FloorCanvas } from '@/components/pos-floor-plan/FloorCanvas';
+import { TableConfigModal } from '@/components/pos-floor-plan/TableConfigModal';
+import { AddSectionModal } from '@/components/pos-floor-plan/AddSectionModal';
+import { AddBatchModal } from '@/components/pos-floor-plan/AddBatchModal';
 
 const sectionIcons: Record<string, any> = {
-  "Outdoor": Trees,
-  "Indoor": Home,
-  "Officer": UserCheck,
-  "default": Utensils,
+  Outdoor: Trees,
+  Indoor: Home,
+  Officer: UserCheck,
+  default: Utensils
 };
 
 const tableIconMap = {
   free: FreeTable,
   occupied: OccTable,
   printed: PrintedTable,
-  splited: SplitedTable,
+  splited: SplitedTable
 };
 
 export function FloorPlan() {
   const navigate = useNavigate();
   const { hasPermission: can } = usePermissions();
   const canEdit = can(PERMISSIONS.TABLES_EDIT);
+  const { locks } = useLanSocket();
 
   const { data: sections = [], isLoading } = useTableSections();
   const { data: openChecks = [] } = useOpenChecks();
@@ -74,10 +67,15 @@ export function FloorPlan() {
   const seedDefaultMutation = useSeedDefaultLayout();
 
   // Active section tab
-  const [activeSectionId, setActiveSectionId] = useState<string | null>(null);
+  const [activeSectionId, setActiveSectionId] = useState<string | null>(() => {
+    return localStorage.getItem('goldensoft:lastSelectedSectionId');
+  });
 
   // Edit mode toggle
   const [isEditMode, setIsEditMode] = useState(false);
+
+  const [selectionTable, setSelectionTable] = useState<any | null>(null);
+  const [selectionChecks, setSelectionChecks] = useState<any[]>([]);
 
   // Selected tables in edit mode (multi-select)
   const [selectedTableIds, setSelectedTableIds] = useState<string[]>([]);
@@ -87,16 +85,16 @@ export function FloorPlan() {
 
   // Dialog state for adding a section
   const [isAddSectionOpen, setIsAddSectionOpen] = useState(false);
-  const [newSectionName, setNewSectionName] = useState('');
+
+  // Batch create state
+  const [isAddBatchOpen, setIsAddBatchOpen] = useState(false);
+
+  // Batch delete state
+  const [isDeleteBatchOpen, setIsDeleteBatchOpen] = useState(false);
 
   // Confirmation Modals State
   const [sectionToDelete, setSectionToDelete] = useState<any | null>(null);
   const [tableToDelete, setTableToDelete] = useState<Table | null>(null);
-
-  // Lock terminal state
-  const [isLocked, setIsLocked] = useState(false);
-  const [lockError, setLockError] = useState<string | null>(null);
-  const setAuth = useAuthStore((state) => state.setAuth);
 
   // Drag tracking state
   const [draggedTableId, setDraggedTableId] = useState<string | null>(null);
@@ -107,10 +105,72 @@ export function FloorPlan() {
   // Local position overrides during active drag
   const [localPositions, setLocalPositions] = useState<Record<string, { posX: number; posY: number }>>({});
 
-  // Auto-select first section when loaded
+  // Viewport tracking & dynamic grid layout detection
+  const observerRef = useRef<ResizeObserver | null>(null);
+  const [windowSize, setWindowSize] = useState({ width: window.innerWidth, height: window.innerHeight });
+  const [containerSize, setContainerSize] = useState({ width: 1024, height: 600 });
+
+  const containerRef = useCallback((node: HTMLDivElement | null) => {
+    if (observerRef.current) {
+      observerRef.current.disconnect();
+      observerRef.current = null;
+    }
+
+    if (node) {
+      const updateSize = () => {
+        if (node.clientWidth > 0 && node.clientHeight > 0) {
+          setContainerSize({
+            width: node.clientWidth,
+            height: node.clientHeight
+          });
+        }
+      };
+
+      updateSize();
+      const observer = new ResizeObserver(updateSize);
+      observer.observe(node);
+      observerRef.current = observer;
+    }
+  }, []);
+
   useEffect(() => {
-    if (sections.length > 0 && !activeSectionId) {
-      setActiveSectionId(sections[0].id);
+    const handleResize = () => {
+      setWindowSize({ width: window.innerWidth, height: window.innerHeight });
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      if (observerRef.current) {
+        observerRef.current.disconnect();
+      }
+    };
+  }, []);
+
+  const isMobileGrid = useMemo(() => {
+    return windowSize.width < 1024 || windowSize.height < 600;
+  }, [windowSize]);
+
+  // Sync activeSectionId to localStorage
+  useEffect(() => {
+    if (activeSectionId) {
+      localStorage.setItem('goldensoft:lastSelectedSectionId', activeSectionId);
+    }
+  }, [activeSectionId]);
+
+  // Auto-select first section when loaded or restore valid cached section
+  useEffect(() => {
+    if (sections.length > 0) {
+      const isValid = activeSectionId ? sections.some((s) => s.id === activeSectionId) : false;
+      if (!isValid) {
+        const cached = localStorage.getItem('goldensoft:lastSelectedSectionId');
+        const isCachedValid = cached ? sections.some((s) => s.id === cached) : false;
+        if (isCachedValid) {
+          setActiveSectionId(cached);
+        } else {
+          setActiveSectionId(sections[0].id);
+        }
+      }
     }
   }, [sections, activeSectionId]);
 
@@ -123,26 +183,35 @@ export function FloorPlan() {
     }
   }, [canEdit, isEditMode]);
 
+  // Auto-disable Edit Mode on mobile sizes
+  useEffect(() => {
+    if (isMobileGrid && isEditMode) {
+      setIsEditMode(false);
+      setSelectedTableIds([]);
+      setActiveConfigTableId(null);
+    }
+  }, [isMobileGrid, isEditMode]);
+
   // Active section object
   const activeSection = useMemo(() => {
-    return sections.find(s => s.id === activeSectionId) || null;
+    return sections.find((s) => s.id === activeSectionId) || null;
   }, [sections, activeSectionId]);
 
   // Active table configuration object
   const activeConfigTable = useMemo(() => {
     if (!activeSection) return null;
-    return activeSection.tables.find(t => t.id === activeConfigTableId) || null;
+    return activeSection.tables.find((t) => t.id === activeConfigTableId) || null;
   }, [activeSection, activeConfigTableId]);
 
   // Flattened list of all tables in the database to calculate next table numbers
   const allTables = useMemo(() => {
-    return sections.flatMap(s => s.tables);
+    return sections.flatMap((s) => s.tables);
   }, [sections]);
 
   // Get table status
-  const getTableStatus = (tableId: string) => {
+  const getTableStatus = useCallback((tableId: string) => {
     if (!currentShift) return 'free';
-    
+
     // Get all open checks for this table on the current business date
     const tableChecks = openChecks.filter(
       (c) => c.tableId === tableId && c.chkDate === currentShift.businessDate
@@ -150,103 +219,177 @@ export function FloorPlan() {
 
     if (tableChecks.length === 0) return 'free';
     if (tableChecks.length > 1) return 'splited';
-    
+
     // exactly 1 check
     if (tableChecks[0].printCount > 0) return 'printed';
     return 'occupied';
-  };
+  }, [currentShift, openChecks]);
 
   // Status-based styles
-  const statusConfig: Record<string, { bg: string; border: string; label: string; pulse: string }> = {
+  const statusConfig = useMemo(() => ({
     free: {
-      bg: 'bg-emerald-500/5 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
-      border: 'border-emerald-500/30',
+      bg: 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400',
+      border: 'border-emerald-200 dark:border-emerald-500/30',
       label: 'Free',
       pulse: 'bg-emerald-500'
     },
     occupied: {
-      bg: 'bg-amber-500/5 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400',
-      border: 'border-amber-500/30',
+      bg: 'bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400',
+      border: 'border-amber-200 dark:border-amber-500/30',
       label: 'Occupied',
       pulse: 'bg-amber-500'
     },
     printed: {
-      bg: 'bg-fuchsia-500/5 dark:bg-fuchsia-500/10 text-fuchsia-600 dark:text-fuchsia-400',
-      border: 'border-fuchsia-500/30',
+      bg: 'bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-400',
+      border: 'border-red-200 dark:border-red-500/30',
       label: 'Printed',
-      pulse: 'bg-fuchsia-500'
+      pulse: 'bg-red-500'
     },
     splited: {
-      bg: 'bg-rose-500/5 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400',
-      border: 'border-rose-500/30',
+      bg: 'bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400',
+      border: 'border-blue-200 dark:border-blue-500/30',
       label: 'Splited',
-      pulse: 'bg-rose-500'
+      pulse: 'bg-blue-500'
     }
-  };
-
-  // Unlock mutation using PinPad credentials
-  const unlockMutation = useMutation({
-    mutationFn: async (credentials: { pin: string }) => {
-      const response = await api.post<LoginResponse>('/auth/login', credentials);
-      if (!response.data.success) {
-        throw new Error(response.data.error || 'Invalid credentials');
-      }
-      return response.data.data;
-    },
-    onSuccess: (data) => {
-      if (data.user) {
-        setAuth(data.accessToken, data.user);
-        setIsLocked(false);
-        setLockError(null);
-      } else {
-        setLockError('Invalid user payload');
-      }
-    },
-    onError: (err: any) => {
-      setLockError(err.response?.data?.error || err.message || 'Unauthorized PIN');
-    }
-  });
-
-  const handleUnlock = (data: { pin: string }) => {
-    setLockError(null);
-    unlockMutation.mutate(data);
-  };
+  }), []);
 
   // Create section handler
-  const handleCreateSection = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newSectionName.trim()) return;
+  const handleCreateSection = async (name: string) => {
     try {
-      const section = await createSectionMutation.mutateAsync({ name: newSectionName.trim() });
+      const section = await createSectionMutation.mutateAsync({ name });
       setActiveSectionId(section.id);
-      setNewSectionName('');
       setIsAddSectionOpen(false);
     } catch (err) {
       console.error(err);
     }
   };
+
+  // Helper to calculate the next table position aligned in rows
+  const getNextTablePosition = useCallback((
+    existingTables: Table[],
+    width = 100,
+    height = 100
+  ) => {
+    if (!existingTables || existingTables.length === 0) {
+      return { posX: 30, posY: 30 };
+    }
+
+    // Find the bottom-most table, and if multiple, the right-most table
+    const sorted = [...existingTables].sort((a, b) => {
+      if (a.posY !== b.posY) {
+        return a.posY - b.posY;
+      }
+      return a.posX - b.posX;
+    });
+
+    const last = sorted[sorted.length - 1];
+
+    // Check if there is space to the right in the same row
+    const nextX = last.posX + last.tableWidth + 20;
+    if (nextX + width <= 1024) {
+      return { posX: nextX, posY: last.posY };
+    } else {
+      // Wrap to next row
+      const nextY = last.posY + last.tableHeight + 20;
+      return {
+        posX: 30,
+        posY: Math.min(nextY, 600 - height) // clamp to prevent vertical overflow
+      };
+    }
+  }, []);
+
   // Create table handler
   const handleCreateTable = async () => {
-    if (!activeSectionId) return;
+    if (!activeSectionId || !activeSection) return;
     // Calculate next available number
     const maxNum = allTables.reduce((max, t) => Math.max(max, t.number), 0);
     const nextNumber = maxNum + 1 === 13 ? 14 : maxNum + 1; // Skip 13 logically
+
+    const { posX, posY } = getNextTablePosition(activeSection.tables, 100, 100);
 
     try {
       const newTable = await createTableMutation.mutateAsync({
         number: nextNumber,
         name: `T${nextNumber}`,
         tableSectionId: activeSectionId,
-        posX: 120,
-        posY: 120,
-        tableWidth: 125,
-        tableHeight: 125,
+        posX,
+        posY,
+        tableWidth: 100,
+        tableHeight: 100,
         shape: 'rect'
       });
       setSelectedTableIds([newTable.id]);
-      setActiveConfigTableId(newTable.id);
     } catch (err) {
       console.error(err);
+    }
+  };
+
+  // Clone table directly handler
+  const handleCloneTableDirectly = async (tableToClone: Table) => {
+    if (!activeSectionId || !activeSection) return;
+    const maxNum = allTables.reduce((max, t) => Math.max(max, t.number), 0);
+    const nextNumber = maxNum + 1 === 13 ? 14 : maxNum + 1;
+
+    const { posX, posY } = getNextTablePosition(
+      activeSection.tables,
+      tableToClone.tableWidth,
+      tableToClone.tableHeight
+    );
+
+    try {
+      const clonedTable = await createTableMutation.mutateAsync({
+        number: nextNumber,
+        name: `T${nextNumber}`,
+        tableSectionId: activeSectionId,
+        posX,
+        posY,
+        tableWidth: tableToClone.tableWidth,
+        tableHeight: tableToClone.tableHeight,
+        shape: tableToClone.shape
+      });
+      setSelectedTableIds([clonedTable.id]);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  // Create batch tables handler
+  const handleCreateBatch = async (count: number) => {
+    if (!activeSectionId || !activeSection || count <= 0) return;
+
+    setIsAddBatchOpen(false);
+
+    const currentTables = [...activeSection.tables];
+    let maxNum = allTables.reduce((max, t) => Math.max(max, t.number), 0);
+    const createdIds: string[] = [];
+
+    for (let k = 0; k < count; k++) {
+      const nextNumber = maxNum + 1 === 13 ? 14 : maxNum + 1;
+      maxNum = nextNumber; // Use this table's number as base for next iteration
+
+      const { posX, posY } = getNextTablePosition(currentTables, 100, 100);
+
+      try {
+        const newTable = await createTableMutation.mutateAsync({
+          number: nextNumber,
+          name: `T${nextNumber}`,
+          tableSectionId: activeSectionId,
+          posX,
+          posY,
+          tableWidth: 100,
+          tableHeight: 100,
+          shape: 'rect'
+        });
+
+        createdIds.push(newTable.id);
+        currentTables.push(newTable);
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    if (createdIds.length > 0) {
+      setSelectedTableIds(createdIds);
     }
   };
 
@@ -274,6 +417,191 @@ export function FloorPlan() {
     }
   };
 
+  const handleAlignSelected = async (alignment: 'left' | 'right' | 'top' | 'bottom') => {
+    if (selectedTableIds.length < 2 || !activeSection) return;
+    const anchorId = selectedTableIds[0];
+    const anchor = activeSection.tables.find((t) => t.id === anchorId);
+    if (!anchor) return;
+
+    const updatedPositions: Record<string, { posX: number; posY: number }> = {};
+
+    const promises = selectedTableIds.map(async (id) => {
+      if (id === anchorId) return;
+      const t = activeSection.tables.find((x) => x.id === id);
+      if (!t) return;
+
+      let newX = t.posX;
+      let newY = t.posY;
+
+      if (alignment === 'left') {
+        newX = anchor.posX;
+      } else if (alignment === 'right') {
+        newX = anchor.posX + anchor.tableWidth - t.tableWidth;
+      } else if (alignment === 'top') {
+        newY = anchor.posY;
+      } else if (alignment === 'bottom') {
+        newY = anchor.posY + anchor.tableHeight - t.tableHeight;
+      }
+
+      // Clamp coordinates to virtual 1024x600 boundaries
+      newX = Math.max(0, Math.min(1024 - t.tableWidth, Math.round(newX / 10) * 10));
+      newY = Math.max(0, Math.min(600 - t.tableHeight, Math.round(newY / 10) * 10));
+
+      updatedPositions[id] = { posX: newX, posY: newY };
+
+      try {
+        await updateTableMutation.mutateAsync({
+          id,
+          data: { posX: newX, posY: newY }
+        });
+      } catch (err) {
+        console.error(err);
+      }
+    });
+
+    try {
+      await Promise.all(promises);
+      setLocalPositions((prev) => ({
+        ...prev,
+        ...updatedPositions
+      }));
+      toast.success(`Aligned tables relative to ${anchor.name || `T${anchor.number}`}`);
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to align some tables');
+    }
+  };
+
+  const handleDistributeSelected = async (direction: 'horizontal' | 'vertical') => {
+    if (selectedTableIds.length < 3 || !activeSection) {
+      toast.warning('Select at least 3 tables to distribute');
+      return;
+    }
+
+    const selectedTables = selectedTableIds
+      .map((id) => activeSection.tables.find((t) => t.id === id))
+      .filter((t): t is Table => !!t);
+
+    if (direction === 'horizontal') {
+      // Sort left-to-right
+      selectedTables.sort((a, b) => a.posX - b.posX);
+
+      const first = selectedTables[0];
+      const last = selectedTables[selectedTables.length - 1];
+
+      const totalSpan = last.posX + last.tableWidth - first.posX;
+      const sumWidths = selectedTables.reduce((sum, t) => sum + t.tableWidth, 0);
+      const remainingSpace = totalSpan - sumWidths;
+
+      const gap = remainingSpace / (selectedTables.length - 1);
+      const updatedPositions: Record<string, { posX: number; posY: number }> = {};
+
+      let currentX = first.posX;
+
+      const promises = selectedTables.map(async (t, index) => {
+        if (index === 0) {
+          currentX += t.tableWidth + gap;
+          return;
+        }
+        if (index === selectedTables.length - 1) {
+          return;
+        }
+
+        let newX = currentX;
+        newX = Math.max(0, Math.min(1024 - t.tableWidth, Math.round(newX / 10) * 10));
+        updatedPositions[t.id] = { posX: newX, posY: t.posY };
+
+        currentX += t.tableWidth + gap;
+
+        try {
+          await updateTableMutation.mutateAsync({
+            id: t.id,
+            data: { posX: newX }
+          });
+        } catch (err) {
+          console.error(err);
+        }
+      });
+
+      try {
+        await Promise.all(promises);
+        setLocalPositions((prev) => ({ ...prev, ...updatedPositions }));
+        toast.success('Distributed tables horizontally');
+      } catch (err) {
+        console.error(err);
+      }
+    } else {
+      // Vertical distribution
+      selectedTables.sort((a, b) => a.posY - b.posY);
+
+      const first = selectedTables[0];
+      const last = selectedTables[selectedTables.length - 1];
+
+      const totalSpan = last.posY + last.tableHeight - first.posY;
+      const sumHeights = selectedTables.reduce((sum, t) => sum + t.tableHeight, 0);
+      const remainingSpace = totalSpan - sumHeights;
+
+      const gap = remainingSpace / (selectedTables.length - 1);
+      const updatedPositions: Record<string, { posX: number; posY: number }> = {};
+
+      let currentY = first.posY;
+
+      const promises = selectedTables.map(async (t, index) => {
+        if (index === 0) {
+          currentY += t.tableHeight + gap;
+          return;
+        }
+        if (index === selectedTables.length - 1) {
+          return;
+        }
+
+        let newY = currentY;
+        newY = Math.max(0, Math.min(600 - t.tableHeight, Math.round(newY / 10) * 10));
+        updatedPositions[t.id] = { posX: t.posX, posY: newY };
+
+        currentY += t.tableHeight + gap;
+
+        try {
+          await updateTableMutation.mutateAsync({
+            id: t.id,
+            data: { posY: newY }
+          });
+        } catch (err) {
+          console.error(err);
+        }
+      });
+
+      try {
+        await Promise.all(promises);
+        setLocalPositions((prev) => ({ ...prev, ...updatedPositions }));
+        toast.success('Distributed tables vertically');
+      } catch (err) {
+        console.error(err);
+      }
+    }
+  };
+
+  const handleConfirmDeleteBatch = async () => {
+    setIsDeleteBatchOpen(false);
+    const deletePromises = selectedTableIds.map(async (id) => {
+      try {
+        await deleteTableMutation.mutateAsync(id);
+      } catch (err) {
+        console.error(err);
+      }
+    });
+
+    try {
+      await Promise.all(deletePromises);
+      setSelectedTableIds([]);
+      setActiveConfigTableId(null);
+      toast.success('Deleted selected tables');
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to delete some tables');
+    }
+  };
+
   // Section deletion cascade handler
   const handleConfirmDeleteSection = async () => {
     if (!sectionToDelete) return;
@@ -295,7 +623,7 @@ export function FloorPlan() {
     if (!tableToDelete) return;
     try {
       await deleteTableMutation.mutateAsync(tableToDelete.id);
-      setSelectedTableIds(prev => prev.filter(id => id !== tableToDelete.id));
+      setSelectedTableIds((prev) => prev.filter((id) => id !== tableToDelete.id));
       setActiveConfigTableId(null);
       setTableToDelete(null);
     } catch (err) {
@@ -322,8 +650,8 @@ export function FloorPlan() {
   // Drag start
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>, table: Table) => {
     if (!isEditMode) return;
-    // Don't drag if settings button was clicked
-    if ((e.target as HTMLElement).closest('.settings-btn')) {
+    // Don't drag if settings or clone button was clicked
+    if ((e.target as HTMLElement).closest('.settings-btn') || (e.target as HTMLElement).closest('.clone-btn')) {
       return;
     }
     e.stopPropagation();
@@ -362,10 +690,11 @@ export function FloorPlan() {
     if (!isEditMode || !draggedTableId || !pointerStartRef.current || !dragStartsRef.current) return;
     e.stopPropagation();
 
+    // Raw client movements (canvas is unscaled 1024x600 in edit mode)
     const deltaX = e.clientX - pointerStartRef.current.clientX;
     const deltaY = e.clientY - pointerStartRef.current.clientY;
 
-    if (Math.abs(deltaX) > 4 || Math.abs(deltaY) > 4) {
+    if (Math.abs(e.clientX - pointerStartRef.current.clientX) > 4 || Math.abs(e.clientY - pointerStartRef.current.clientY) > 4) {
       hasDraggedRef.current = true;
     }
 
@@ -373,8 +702,14 @@ export function FloorPlan() {
     Object.entries(dragStartsRef.current).forEach(([id, start]) => {
       let nextX = start.posX + deltaX;
       let nextY = start.posY + deltaY;
-      nextX = Math.max(0, Math.round(nextX / 10) * 10);
-      nextY = Math.max(0, Math.round(nextY / 10) * 10);
+
+      const t = activeSection?.tables.find((x) => x.id === id);
+      const w = t?.tableWidth ?? 100;
+      const h = t?.tableHeight ?? 100;
+
+      // Clamp coords so tables don't go outside the virtual 1024x600 canvas
+      nextX = Math.max(0, Math.min(1024 - w, Math.round(nextX / 10) * 10));
+      nextY = Math.max(0, Math.min(600 - h, Math.round(nextY / 10) * 10));
       updatedPositions[id] = { posX: nextX, posY: nextY };
     });
 
@@ -420,10 +755,10 @@ export function FloorPlan() {
       }
     } else {
       // If we clicked/tapped without dragging, toggle this table's selection status
-      if (!(e.target as HTMLElement).closest('.settings-btn')) {
-        setSelectedTableIds(prev => {
+      if (!(e.target as HTMLElement).closest('.settings-btn') && !(e.target as HTMLElement).closest('.clone-btn')) {
+        setSelectedTableIds((prev) => {
           if (prev.includes(table.id)) {
-            return prev.filter(id => id !== table.id);
+            return prev.filter((id) => id !== table.id);
           } else {
             return [...prev, table.id];
           }
@@ -445,453 +780,145 @@ export function FloorPlan() {
     }
   };
 
+  const handleSelectCheck = (chkNo: number) => {
+    if (selectionTable) {
+      navigate(`/table/${selectionTable.number}?chkNo=${chkNo}`);
+      setSelectionTable(null);
+    }
+  };
+
+  const handleTableClick = useCallback((table: Table) => {
+    const tableLock = locks[table.id];
+    if (tableLock) {
+      toast.warning(`Table is locked by ${tableLock.lockedBy.username}`);
+      return;
+    }
+
+    if (table.belongsToCurrentUser === false) {
+      toast.error("This table is occupied by another waiter's check / هذه الطاولة محجوزة لنادل آخر");
+      return;
+    }
+
+    const tableChecks = openChecks.filter(
+      (c) => c.tableId === table.id && c.chkDate === currentShift?.businessDate
+    );
+
+    if (tableChecks.length > 1) {
+      setSelectionTable(table);
+      setSelectionChecks(tableChecks);
+    } else if (tableChecks.length === 1) {
+      navigate(`/table/${table.number}?chkNo=${tableChecks[0].chkNo}`);
+    } else {
+      navigate(`/table/${table.number}`);
+    }
+  }, [locks, openChecks, currentShift, navigate]);
+
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-[#0a0710] bg-gradient-to-br from-slate-100 via-slate-50 to-slate-100 dark:from-[#1c122b] dark:via-[#0d0914] dark:to-[#0a0710] text-slate-900 dark:text-white flex flex-col font-sans transition-colors duration-300">
+      <FloorPlanHeader
+        sections={sections}
+        activeSectionId={activeSectionId}
+        setActiveSectionId={setActiveSectionId}
+        isEditMode={isEditMode}
+        setIsEditMode={setIsEditMode}
+        canEdit={canEdit}
+        isMobileGrid={isMobileGrid}
+        selectedTableIds={selectedTableIds}
+        setSelectedTableIds={setSelectedTableIds}
+        setActiveConfigTableId={setActiveConfigTableId}
+        setSectionToDelete={setSectionToDelete}
+        setIsAddSectionOpen={setIsAddSectionOpen}
+        handleSeedDefault={handleSeedDefault}
+        seedDefaultPending={seedDefaultMutation.isPending}
+        sectionIcons={sectionIcons}
+        navigate={navigate}
+      />
 
-      {/* 1-Row Compact Seating Header */}
-      <header className="h-16 px-6 bg-white/80 dark:bg-[#15111d]/85 backdrop-blur-xl border-b border-slate-200 dark:border-white/5 flex items-center justify-between shadow-sm z-20">
-
-        {/* Left: Compact Section tabs list */}
-        <div className="flex items-center gap-2 overflow-x-auto select-none no-scrollbar py-1">
-          {sections.map((section) => {
-            const SectionIcon = sectionIcons[section.name] || sectionIcons.default;
-            const isActive = activeSectionId === section.id;
-            return (
-              <div
-                key={section.id}
-                className="flex items-center shrink-0"
-              >
-                <button
-                  onClick={() => {
-                    setActiveSectionId(section.id);
-                    setSelectedTableIds([]);
-                    setActiveConfigTableId(null);
-                  }}
-                  className={`h-11 px-4 rounded-xl border flex items-center gap-2 font-bold tracking-wide transition-all active:scale-95 duration-75 text-xs cursor-pointer ${isActive
-                      ? 'bg-indigo-600/10 border-indigo-600/40 text-indigo-600 dark:text-indigo-400'
-                      : 'bg-white dark:bg-[#1a1626] border-slate-200 dark:border-white/5 text-slate-600 dark:text-gray-400 hover:bg-slate-100 dark:hover:bg-[#211d31]'
-                    }`}
-                >
-                  <SectionIcon className="w-3.5 h-3.5" />
-                  <span>{section.name}</span>
-                  <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded-full ${isActive ? 'bg-indigo-600 dark:bg-indigo-500 text-white' : 'bg-slate-200 dark:bg-white/10 text-slate-500 dark:text-slate-400'}`}>
-                    {section.tables.length}
-                  </span>
-                </button>
-
-                {/* Delete Section close cross shown only in edit mode */}
-                {isEditMode && (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setSectionToDelete(section);
-                    }}
-                    className="ml-1 w-7 h-11 flex items-center justify-center text-red-500 hover:text-red-600 active:scale-90 transition-transform cursor-pointer bg-red-500/5 dark:bg-red-500/10 border border-red-500/20 rounded-xl"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                )}
-              </div>
-            );
-          })}
-
-          {isEditMode && (
-            <button
-              onClick={() => setIsAddSectionOpen(true)}
-              className="h-11 px-3 border border-dashed border-slate-300 dark:border-white/10 rounded-xl flex items-center gap-1.5 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#1d192a] font-bold text-xs active:scale-95 cursor-pointer"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              Add Section
-            </button>
-          )}
-        </div>
-
-        {/* Right: Controls (Lock, Edit/Save, Exit) */}
-        <div className="flex items-center gap-2">
-          {isEditMode && activeSection && (
-            <div className="flex items-center gap-2 mr-2 select-none">
+      {/* Main Canvas (Mobile Grid or Proportional Scaled View) */}
+      <div className="flex-1 relative select-none overflow-hidden touch-none flex flex-col bg-slate-100 dark:bg-[#07050b]">
+        {isLoading ? (
+          <div className="flex-1 flex flex-col items-center justify-center gap-3">
+            <div className="w-10 h-10 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+            <span className="text-slate-400 font-medium">Loading Seating Layout...</span>
+          </div>
+        ) : !activeSection ? (
+          <div className="flex-1 flex flex-col items-center justify-center gap-4 text-center p-6 z-10">
+            <Layers className="w-16 h-16 text-slate-300 dark:text-slate-700" />
+            <div>
+              <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200">
+                No layout sections found
+              </h3>
+              <p className="text-sm text-slate-500 dark:text-gray-400 max-w-sm mt-1">
+                Create Seating Sections or load the seed layout config to populate tables.
+              </p>
+            </div>
+            {isEditMode && (
               <Button
-                variant="outline"
-                onClick={() => {
-                  setSelectedTableIds(activeSection.tables.map(t => t.id));
-                }}
-                className="h-11 px-3.5 rounded-xl text-xs font-bold bg-white dark:bg-[#1a1626] border-slate-200 dark:border-white/5 text-slate-600 dark:text-gray-300 active:scale-95 cursor-pointer"
+                onClick={() => setIsAddSectionOpen(true)}
+                className="h-16 bg-indigo-600 hover:bg-indigo-700 rounded-2xl px-5 text-white font-bold cursor-pointer active:scale-95"
               >
-                Select All ({activeSection.tables.length})
+                Add First Section
               </Button>
-              {selectedTableIds.length > 0 && (
-                <Button
-                  variant="outline"
-                  onClick={() => setSelectedTableIds([])}
-                  className="h-11 px-3.5 rounded-xl text-xs font-bold text-red-500 bg-red-500/5 hover:bg-red-500/10 border-red-500/20 active:scale-95 cursor-pointer"
-                >
-                  Clear Selection ({selectedTableIds.length})
-                </Button>
-              )}
-            </div>
-          )}
-          {isEditMode && (
-            <Button
-              variant="outline"
-              onClick={handleSeedDefault}
-              disabled={seedDefaultMutation.isPending}
-              className="h-11 px-3.5 rounded-xl border-dashed border-blue-500/40 bg-blue-500/10 hover:bg-blue-500/20 text-blue-500 dark:text-blue-400 font-bold text-xs active:scale-95"
-            >
-              <Sparkles className="w-3.5 h-3.5 mr-1.5" />
-              {seedDefaultMutation.isPending ? 'Seeding...' : 'Seed Layout'}
-            </Button>
-          )}
-
-          {/* Lock terminal button */}
-          <button
-            onClick={() => setIsLocked(true)}
-            className="w-11 h-11 bg-slate-100 dark:bg-[#1e192c] hover:bg-slate-200 dark:hover:bg-[#28223a] text-slate-600 dark:text-gray-300 border border-slate-200 dark:border-white/5 rounded-xl flex items-center justify-center active:scale-90 transition-transform cursor-pointer"
-            title="Lock Terminal"
-          >
-            <Lock className="w-4 h-4" />
-          </button>
-
-          {/* Edit / Save layout buttons */}
-          {canEdit && (
-            <button
-              onClick={() => {
-                setIsEditMode(prev => !prev);
-                setSelectedTableIds([]);
-                setActiveConfigTableId(null);
-              }}
-              className={`h-11 px-4 rounded-xl font-bold text-xs active:scale-95 duration-75 flex items-center gap-1.5 transition-colors cursor-pointer border ${isEditMode
-                  ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-500'
-                  : 'bg-indigo-600 hover:bg-indigo-700 text-white border-indigo-600'
-                }`}
-            >
-              {isEditMode ? (
-                <>
-                  <Unlock className="w-3.5 h-3.5" />
-                  <span>Save Layout</span>
-                </>
-              ) : (
-                <>
-                  <Lock className="w-3.5 h-3.5" />
-                  <span>Edit Layout</span>
-                </>
-              )}
-            </button>
-          )}
-
-          <Button
-            variant="outline"
-            onClick={() => navigate('/')}
-            className="h-11 px-4 rounded-xl border-slate-200 dark:border-white/10 dark:bg-[#252036] text-xs font-bold"
-          >
-            Exit
-          </Button>
-        </div>
-      </header>
-
-      {/* Main Canvas (Expanded full width/height) */}
-      <div className="flex-1 relative select-none overflow-hidden touch-none">
-
-        {/* Seating Canvas Grid Area */}
-        <section className="absolute inset-0 bg-[#0f0c1b]/30 dark:bg-black/35 overflow-hidden flex flex-col">
-
-          {/* Subtle snap grid layout overlay in edit mode */}
-          {isEditMode && (
-            <div className="absolute inset-0 pointer-events-none opacity-20 dark:opacity-10"
-              style={{
-                backgroundImage: 'radial-gradient(circle, #6366f1 1px, transparent 1.5px)',
-                backgroundSize: '20px 20px'
-              }}
-            />
-          )}
-
-          {isLoading ? (
-            <div className="flex-1 flex flex-col items-center justify-center gap-3">
-              <div className="w-10 h-10 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin" />
-              <span className="text-slate-400 font-medium">Loading Seating Layout...</span>
-            </div>
-          ) : !activeSection ? (
-            <div className="flex-1 flex flex-col items-center justify-center gap-4 text-center p-6 z-10">
-              <Layers className="w-16 h-16 text-slate-300 dark:text-slate-700" />
-              <div>
-                <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200">No layout sections found</h3>
-                <p className="text-sm text-slate-500 dark:text-gray-400 max-w-sm mt-1">Create Seating Sections or load the seed layout config to populate tables.</p>
-              </div>
-              {isEditMode && (
-                <Button onClick={() => setIsAddSectionOpen(true)} className="h-12 bg-indigo-600 hover:bg-indigo-700 rounded-xl px-5 text-white font-bold cursor-pointer">
-                  Add First Section
-                </Button>
-              )}
-            </div>
-          ) : (
-            <div className="flex-1 relative overflow-auto p-12" id="seating-canvas">
-
-              {activeSection.tables.length === 0 ? (
-                <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
-                  <span className="text-slate-400 text-sm font-semibold">No Seating tables placed in this section.</span>
-                  {isEditMode && (
-                    <Button onClick={handleCreateTable} variant="outline" className="h-11 rounded-xl px-4 border-slate-200 dark:border-white/10 dark:text-white dark:bg-[#201b2f] mt-2 active:scale-95 cursor-pointer">
-                      <Plus className="w-4 h-4 mr-1.5" /> Place Table
-                    </Button>
-                  )}
-                </div>
-              ) : (
-                activeSection.tables.map((table) => {
-                  const localPos = localPositions[table.id];
-                  const posX = localPos ? localPos.posX : table.posX;
-                  const posY = localPos ? localPos.posY : table.posY;
-                  const isSelected = selectedTableIds.includes(table.id);
-                  const status = getTableStatus(table.id);
-                  const config = statusConfig[status];
-
-                  // Dynamically resolve custom SVG component
-                  const TableSvgIcon = tableIconMap[status] || FreeTable;
-
-                  return (
-                    <div
-                      key={table.id}
-                      onPointerDown={(e) => onPointerDown(e, table)}
-                      onPointerMove={onPointerMove}
-                      onPointerUp={(e) => onPointerUp(e, table)}
-                      onClick={() => {
-                        if (!isEditMode) {
-                          // Tap navigates to order mock path
-                          navigate(`/table/${table.number}`);
-                        }
-                      }}
-                      className={`absolute select-none cursor-pointer border-2 flex flex-col items-center justify-center group font-sans active:scale-95 transition-all duration-100 ${table.shape === 'circle' ? 'rounded-full' : 'rounded-[2rem]'
-                        } ${isEditMode
-                          ? isSelected
-                            ? 'border-indigo-600 bg-indigo-600/20 ring-4 ring-indigo-600/10 shadow-lg scale-105'
-                            : 'border-slate-400/30 hover:border-slate-400/60 bg-white/5 dark:bg-[#1a1626]/40 shadow-sm'
-                          : `${config.bg} ${config.border} hover:scale-102 hover:shadow-lg`
-                        }`}
-                      style={{
-                        left: `${posX}px`,
-                        top: `${posY}px`,
-                        width: `${table.tableWidth}px`,
-                        height: `${table.tableHeight}px`,
-                        touchAction: 'none'
-                      }}
-                    >
-                      {/* Properties settings icon shown on every table in edit mode only */}
-                      {isEditMode && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            e.preventDefault();
-                            setActiveConfigTableId(table.id);
-                          }}
-                          className="settings-btn absolute top-2 right-2 w-8 h-8 rounded-full bg-slate-800/90 dark:bg-[#1a1626] border border-white/10 flex items-center justify-center text-slate-300 hover:text-white hover:bg-indigo-600 hover:border-indigo-600 active:scale-90 transition-all z-10 shadow-md cursor-pointer"
-                          title="Configure Table"
-                        >
-                          <Settings className="w-4 h-4" />
-                        </button>
-                      )}
-
-                      {/* Check state pulse dot overlay */}
-                      {!isEditMode && status !== 'free' && (
-                        <span className="absolute top-2.5 right-2.5 flex h-2 w-2">
-                          <span className={`absolute inline-flex h-full w-full animate-ping rounded-full opacity-60 ${config.pulse}`}></span>
-                          <span className={`relative inline-flex rounded-full h-2 w-2 ${config.pulse}`}></span>
-                        </span>
-                      )}
-
-                      {/* Render direct SVG imported components */}
-                      <div className="w-[50%] h-[50%] flex items-center justify-center text-current mb-1 [&>svg]:w-full [&>svg]:h-full [&>svg]:object-contain">
-                        <TableSvgIcon />
-                      </div>
-
-                      <span className="font-extrabold tracking-tight text-xs sm:text-sm text-slate-800 dark:text-white">
-                        {table.name || `T${table.number}`}
-                      </span>
-
-                      {/* Show status label in non-edit mode */}
-                      {!isEditMode && (
-                        <span className="text-[9px] font-black uppercase tracking-wider scale-90 opacity-90 mt-0.5">
-                          {config.label}
-                        </span>
-                      )}
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          )}
-
-          {/* Floating plus button inside canvas in edit mode to easily drop a table */}
-          {isEditMode && activeSection && (
-            <button
-              onClick={handleCreateTable}
-              className="absolute bottom-6 right-6 w-16 h-16 rounded-full bg-indigo-600 text-white flex items-center justify-center shadow-lg hover:bg-indigo-700 active:scale-90 transition-transform cursor-pointer"
-              title="Add New Seating Table"
-            >
-              <Plus className="w-8 h-8" />
-            </button>
-          )}
-        </section>
+            )}
+          </div>
+        ) : isMobileGrid ? (
+          <FloorMobileGrid
+            activeSection={activeSection}
+            locks={locks}
+            getTableStatus={getTableStatus}
+            statusConfig={statusConfig}
+            tableIconMap={tableIconMap}
+            handleTableClick={handleTableClick}
+          />
+        ) : (
+          <FloorCanvas
+            activeSection={activeSection}
+            isEditMode={isEditMode}
+            selectedTableIds={selectedTableIds}
+            localPositions={localPositions}
+            locks={locks}
+            getTableStatus={getTableStatus}
+            statusConfig={statusConfig}
+            tableIconMap={tableIconMap}
+            handleTableClick={handleTableClick}
+            setActiveConfigTableId={setActiveConfigTableId}
+            onPointerDown={onPointerDown}
+            onPointerMove={onPointerMove}
+            onPointerUp={onPointerUp}
+            handleCreateTable={handleCreateTable}
+            handleCloneTableDirectly={handleCloneTableDirectly}
+            setIsAddBatchOpen={setIsAddBatchOpen}
+            containerRef={containerRef}
+            containerSize={containerSize}
+            handleAlignSelected={handleAlignSelected}
+            handleDistributeSelected={handleDistributeSelected}
+            setIsDeleteBatchOpen={setIsDeleteBatchOpen}
+          />
+        )}
       </div>
 
-      {/* Center Floating Properties Modal Overlay (Edit Mode Center Modal) */}
-      {isEditMode && activeConfigTable && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-40 flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-[#15111d] border border-slate-200 dark:border-white/5 rounded-[2.5rem] p-6 max-w-sm w-full shadow-2xl flex flex-col gap-4 animate-in fade-in zoom-in duration-100">
-
-            <div className="flex items-center justify-between border-b border-slate-200 dark:border-white/5 pb-3">
-              <h3 className="text-base font-black tracking-wider uppercase flex items-center gap-1.5 dark:text-white">
-                <Layers className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
-                Configure Table
-              </h3>
-              <button
-                onClick={() => setActiveConfigTableId(null)}
-                className="w-8 h-8 rounded-full flex items-center justify-center bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 cursor-pointer active:scale-95 text-slate-500 dark:text-slate-400"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="space-y-4">
-              {/* Name field */}
-              <div className="space-y-1">
-                <label className="text-[10px] font-black tracking-wider text-slate-400 uppercase">Table Label</label>
-                <input
-                  type="text"
-                  value={activeConfigTable.name}
-                  onChange={(e) => handleUpdateSelectedTable({ name: e.target.value })}
-                  className="w-full h-11 bg-slate-50 dark:bg-[#201b2f] border border-slate-200 dark:border-white/5 rounded-xl px-3 text-sm font-semibold text-slate-800 dark:text-white focus:outline-none focus:border-indigo-600 dark:focus:border-indigo-500"
-                />
-              </div>
-
-              {/* Number field */}
-              <div className="space-y-1">
-                <label className="text-[10px] font-black tracking-wider text-slate-400 uppercase">Table ID/No</label>
-                <input
-                  type="number"
-                  value={activeConfigTable.number}
-                  onChange={(e) => handleUpdateSelectedTable({ number: parseInt(e.target.value) || 0 })}
-                  className="w-full h-11 bg-slate-50 dark:bg-[#201b2f] border border-slate-200 dark:border-white/5 rounded-xl px-3 text-sm font-semibold text-slate-800 dark:text-white focus:outline-none focus:border-indigo-600 dark:focus:border-indigo-500"
-                />
-              </div>
-
-              {/* Shape selection */}
-              <div className="space-y-1">
-                <label className="text-[10px] font-black tracking-wider text-slate-400 uppercase">Table Shape</label>
-                <div className="flex gap-2">
-                  {(['rect', 'circle'] as TableShape[]).map((shape) => (
-                    <button
-                      key={shape}
-                      onClick={() => handleUpdateSelectedTable({ shape })}
-                      className={`flex-1 h-10 rounded-xl text-[10px] font-black uppercase tracking-wider border transition-all cursor-pointer active:scale-95 ${activeConfigTable.shape === shape
-                          ? 'bg-indigo-600 dark:bg-indigo-500 border-indigo-600 dark:border-indigo-500 text-white shadow-md'
-                          : 'bg-slate-50 dark:bg-[#201b2f] border-slate-200 dark:border-white/5 text-slate-500 dark:text-slate-400 hover:bg-slate-100'
-                        }`}
-                    >
-                      {shape === 'rect' ? 'Rectangle' : 'Circle'}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Width slider */}
-              <div className="space-y-0.5">
-                <div className="flex justify-between items-center text-[10px] font-black tracking-wider text-slate-400 uppercase">
-                  <span>Width</span>
-                  <span>{activeConfigTable.tableWidth}px</span>
-                </div>
-                <input
-                  type="range"
-                  min="50"
-                  max="180"
-                  step="5"
-                  value={activeConfigTable.tableWidth}
-                  onChange={(e) => handleUpdateSelectedTable({ tableWidth: parseInt(e.target.value) })}
-                  className="w-full accent-indigo-600 dark:accent-indigo-500 h-2 bg-slate-100 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer"
-                />
-              </div>
-
-              {/* Height slider */}
-              <div className="space-y-0.5">
-                <div className="flex justify-between items-center text-[10px] font-black tracking-wider text-slate-400 uppercase">
-                  <span>Height</span>
-                  <span>{activeConfigTable.tableHeight}px</span>
-                </div>
-                <input
-                  type="range"
-                  min="50"
-                  max="180"
-                  step="5"
-                  value={activeConfigTable.tableHeight}
-                  onChange={(e) => handleUpdateSelectedTable({ tableHeight: parseInt(e.target.value) })}
-                  className="w-full accent-indigo-600 dark:accent-indigo-500 h-2 bg-slate-100 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer"
-                />
-              </div>
-            </div>
-
-            <div className="border-t border-slate-200 dark:border-white/5 pt-3 mt-1 flex flex-col gap-2">
-              {/* Copy action */}
-              <button
-                onClick={handleCopyTable}
-                className="w-full h-11 bg-slate-100 dark:bg-[#221b33] hover:bg-slate-200 dark:hover:bg-[#2b2241] border border-slate-200 dark:border-white/5 rounded-xl text-[10px] font-black uppercase tracking-wider text-slate-800 dark:text-white flex items-center justify-center gap-1.5 active:scale-95 transition-all cursor-pointer"
-              >
-                <Copy className="w-3.5 h-3.5" />
-                Clone Table Settings
-              </button>
-
-              {/* Delete action */}
-              <button
-                onClick={() => setTableToDelete(activeConfigTable)}
-                className="w-full h-11 bg-red-600/10 hover:bg-red-600/20 border border-red-500/20 rounded-xl text-[10px] font-black uppercase tracking-wider text-red-600 dark:text-red-400 flex items-center justify-center gap-1.5 active:scale-95 transition-all cursor-pointer"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                Delete Table
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Floating Property configurations Modal Overlay */}
+      <TableConfigModal
+        table={activeConfigTable}
+        onClose={() => setActiveConfigTableId(null)}
+        onUpdate={handleUpdateSelectedTable}
+        onCopy={handleCopyTable}
+        onDelete={setTableToDelete}
+      />
 
       {/* Add Seating Section Modal */}
-      {isAddSectionOpen && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-[#15111d] border border-slate-200 dark:border-white/5 rounded-[2rem] p-6 max-w-sm w-full shadow-2xl flex flex-col gap-4 animate-in fade-in zoom-in duration-100">
-            <div>
-              <h3 className="text-base font-black tracking-wider uppercase dark:text-white">Create Layout Section</h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Add seating segment (e.g. VIP Terrace, Indoor Bar)</p>
-            </div>
+      <AddSectionModal
+        isOpen={isAddSectionOpen}
+        onClose={() => setIsAddSectionOpen(false)}
+        onCreate={handleCreateSection}
+      />
 
-            <form onSubmit={handleCreateSection} className="space-y-4">
-              <input
-                type="text"
-                autoFocus
-                value={newSectionName}
-                onChange={(e) => setNewSectionName(e.target.value)}
-                placeholder="Section Name..."
-                className="w-full h-12 bg-slate-50 dark:bg-[#201b2f] border border-slate-200 dark:border-white/5 rounded-xl px-4 text-sm font-semibold text-slate-800 dark:text-white focus:outline-none focus:border-indigo-600 dark:focus:border-indigo-500"
-              />
-
-              <div className="flex gap-2 pt-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => {
-                    setIsAddSectionOpen(false);
-                    setNewSectionName('');
-                  }}
-                  className="flex-1 h-11 rounded-xl text-xs font-bold border-slate-200 dark:border-white/10 dark:bg-[#1a1525] dark:text-white cursor-pointer active:scale-95"
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="submit"
-                  disabled={!newSectionName.trim()}
-                  className="flex-1 h-11 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer active:scale-95"
-                >
-                  Create
-                </Button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      {/* Add Batch Seating Section Dialog */}
+      <AddBatchModal
+        isOpen={isAddBatchOpen}
+        onClose={() => setIsAddBatchOpen(false)}
+        onAddBatch={handleCreateBatch}
+      />
 
       {/* Confirmation Dialog for Section deletion */}
       <ConfirmationDialog
@@ -902,9 +929,13 @@ export function FloorPlan() {
         description={
           sectionToDelete ? (
             <span>
-              Are you sure you want to delete section <strong>{sectionToDelete.name}</strong> and all <strong>{sectionToDelete.tables.length}</strong> seating tables associated with it? This action cannot be undone.
+              Are you sure you want to delete section <strong>{sectionToDelete.name}</strong> and all{' '}
+              <strong>{sectionToDelete.tables.length}</strong> seating tables associated with it? This action
+              cannot be undone.
             </span>
-          ) : ''
+          ) : (
+            ''
+          )
         }
         confirmText="Delete Section"
         cancelText="Keep Section"
@@ -920,26 +951,44 @@ export function FloorPlan() {
         description={
           tableToDelete ? (
             <span>
-              Are you sure you want to delete table <strong>{tableToDelete.name || tableToDelete.number}</strong> from layout?
+              Are you sure you want to delete table <strong>{tableToDelete.name || tableToDelete.number}</strong>{' '}
+              from layout?
             </span>
-          ) : ''
+          ) : (
+            ''
+          )
         }
         confirmText="Delete Table"
         cancelText="Keep Table"
         isDestructive={true}
       />
 
-      {/* Full-Screen PIN Lock Overlay Screen */}
-      {isLocked && (
-        <div className="fixed inset-0 z-50 bg-[#07050b]/95 backdrop-blur-2xl flex items-center justify-center p-6 animate-in fade-in duration-200">
-          <div className="w-full max-w-lg">
-            <PinPad
-              onSubmit={handleUnlock}
-              isLoading={unlockMutation.isPending}
-              error={lockError}
-            />
-          </div>
-        </div>
+      {/* Confirmation Dialog for Batch Table deletion */}
+      <ConfirmationDialog
+        isOpen={isDeleteBatchOpen}
+        onClose={() => setIsDeleteBatchOpen(false)}
+        onConfirm={handleConfirmDeleteBatch}
+        title="Delete Selected Tables?"
+        description={
+          <span>
+            Are you sure you want to delete the <strong>{selectedTableIds.length}</strong> selected tables?
+            This action cannot be undone.
+          </span>
+        }
+        confirmText={`Delete ${selectedTableIds.length} Tables`}
+        cancelText="Keep Tables"
+        isDestructive={true}
+      />
+
+      {/* Table Checks Selection Dialog */}
+      {selectionTable && (
+        <TableChecksSelectionDialog
+          open={!!selectionTable}
+          onClose={() => setSelectionTable(null)}
+          table={selectionTable}
+          checks={selectionChecks}
+          onSelectCheck={handleSelectCheck}
+        />
       )}
     </div>
   );

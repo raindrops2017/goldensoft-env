@@ -1,10 +1,12 @@
-const PrintedTable = () => (
+import React from 'react';
+
+const PrintedTable = (props: React.SVGProps<SVGSVGElement>) => (
   <svg
-    xmlns="http://www.w3.org/2000/svg"
-    xmlSpace="preserve"
-    width={64}
-    height={64}
     viewBox="0 0 512.001 512.001"
+    className={props.className || "w-full h-full"}
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+    {...props}
   >
     <path
       d="M429.801 147.789H82.199l-40.292 50.772v85.925h428.187v-85.925z"

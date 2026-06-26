@@ -40,6 +40,7 @@ export const PERMISSIONS = {
   WORK_SHIFT_CLOSE: 'workShift:close',
   WORKDAY_CLOSE: 'workday:close',
   TABLES_EDIT: 'tables:edit',
+  CHECK_WAITER_TRANSFER: 'check.waiter:transfer',
 } as const;
 
 export type Permission = typeof PERMISSIONS[keyof typeof PERMISSIONS];
@@ -85,5 +86,6 @@ export const permissionsList = [
   { name: PERMISSIONS.DELIVERY_OPEN, description: 'Open delivery checks' },
   { name: PERMISSIONS.WORK_SHIFT_CLOSE, description: 'Close work shifts' },
   { name: PERMISSIONS.WORKDAY_CLOSE, description: 'Close workdays' },
-  { name: PERMISSIONS.TABLES_EDIT, description: 'Manage sections and table layouts' }
+  { name: PERMISSIONS.TABLES_EDIT, description: 'Manage sections and table layouts' },
+  { name: PERMISSIONS.CHECK_WAITER_TRANSFER, description: 'Transfer checks to other waiters' }
 ];

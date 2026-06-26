@@ -38,7 +38,13 @@ api.interceptors.response.use(
 
     // If the error is 401 and we haven't retried yet
     // Also avoid infinite loops if the refresh endpoint itself returns 401
-    if (error.response?.status === 401 && !originalRequest._retry && originalRequest.url !== '/auth/refresh') {
+    // Exclude /auth/login as 401 there means Invalid PIN, not an expired access token
+    if (
+      error.response?.status === 401 &&
+      !originalRequest._retry &&
+      originalRequest.url !== '/auth/refresh' &&
+      originalRequest.url !== '/auth/login'
+    ) {
       
       if (isRefreshing) {
         return new Promise(function (resolve, reject) {

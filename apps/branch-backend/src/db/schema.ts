@@ -5,6 +5,7 @@ export const roles = sqliteTable('roles', {
   id: text('id').primaryKey(),
   name: text('name').notNull().unique(),
   description: text('description'),
+  isWaiter: integer('is_waiter', { mode: 'boolean' }).notNull().default(false),
   cloudSyncId: text('cloud_sync_id'),
   createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
   updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
@@ -36,10 +37,13 @@ export const users = sqliteTable('users', {
   role: text('role').notNull().default('user'),
   roleId: text('role_id').references(() => roles.id, { onDelete: 'set null' }),
   isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true), 
+  failedPinAttempts: integer('failed_pin_attempts').notNull().default(0),
+  lockedUntil: text('locked_until'), // nullable ISO-8601 UTC timestamp
   cloudSyncId: text('cloud_sync_id'),
   createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
   updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
 });
+
 
 export const options = sqliteTable('options', {
   id: text('id').primaryKey(),

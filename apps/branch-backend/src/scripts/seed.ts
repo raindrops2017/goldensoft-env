@@ -66,10 +66,10 @@ async function seed() {
     const waiterRoleId = crypto.randomUUID();
 
     await db.insert(roles).values([
-      { id: adminRoleId, name: 'admin', description: 'Administrator with full system control' },
-      { id: managerRoleId, name: 'manager', description: 'Branch manager managing shifts and checkout' },
-      { id: cashierRoleId, name: 'cashier', description: 'Cashier managing payments and checkout' },
-      { id: waiterRoleId, name: 'waiter', description: 'Waiter handling dining tables and taking orders' }
+      { id: adminRoleId, name: 'admin', description: 'Administrator with full system control', isWaiter: false },
+      { id: managerRoleId, name: 'manager', description: 'Branch manager managing shifts and checkout', isWaiter: false },
+      { id: cashierRoleId, name: 'cashier', description: 'Cashier managing payments and checkout', isWaiter: false },
+      { id: waiterRoleId, name: 'waiter', description: 'Waiter handling dining tables and taking orders', isWaiter: true }
     ]);
 
     // 2. Seed Permissions
@@ -138,17 +138,20 @@ async function seed() {
     const hashedPinManager = await bcrypt.hash('9999', 10);
     const hashedPinCashier = await bcrypt.hash('1111', 10);
     const hashedPinWaiter = await bcrypt.hash('2222', 10);
+    const hashedPinWaiter2 = await bcrypt.hash('3333', 10);
 
     const adminUserId = crypto.randomUUID();
     const managerUserId = crypto.randomUUID();
     const cashierUserId = crypto.randomUUID();
     const waiterUserId = crypto.randomUUID();
+    const waiterUserId2 = crypto.randomUUID();
 
     await db.insert(users).values([
       { id: adminUserId, username: 'admin', pin: hashedPinAdmin, role: 'admin', roleId: adminRoleId, isActive: true },
       { id: managerUserId, username: 'manager', pin: hashedPinManager, role: 'manager', roleId: managerRoleId, isActive: true },
       { id: cashierUserId, username: 'cashier', pin: hashedPinCashier, role: 'cashier', roleId: cashierRoleId, isActive: true },
-      { id: waiterUserId, username: 'waiter', pin: hashedPinWaiter, role: 'waiter', roleId: waiterRoleId, isActive: true }
+      { id: waiterUserId, username: 'waiter', pin: hashedPinWaiter, role: 'waiter', roleId: waiterRoleId, isActive: true },
+      { id: waiterUserId2, username: 'waiter2', pin: hashedPinWaiter2, role: 'waiter', roleId: waiterRoleId, isActive: true }
     ]);
 
     // 5. Seed Options (Branch settings)

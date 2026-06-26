@@ -87,6 +87,20 @@ export const useChecksApi = () => {
     }
   });
 
+  const transferTable = useMutation({
+    mutationFn: async ({ chkId, targetTableId, supervisorPin }: { chkId: string, targetTableId: string, supervisorPin?: string }) => {
+      const res = await api.put(`/checks/${chkId}/table-transfer`, { targetTableId, supervisorPin });
+      return res.data.data as CheckWithItems;
+    }
+  });
+
+  const transferWaiter = useMutation({
+    mutationFn: async ({ chkId, targetWaiterId, supervisorPin }: { chkId: string, targetWaiterId: string, supervisorPin?: string }) => {
+      const res = await api.put(`/checks/${chkId}/waiter-transfer`, { targetWaiterId, supervisorPin });
+      return res.data.data as CheckWithItems;
+    }
+  });
+
   return {
     createCheck,
     addCheckItems,
@@ -95,6 +109,8 @@ export const useChecksApi = () => {
     voidCheck,
     updateCheckDiscount,
     splitCheck,
-    printCheck
+    printCheck,
+    transferTable,
+    transferWaiter
   };
 };

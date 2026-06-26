@@ -9,7 +9,9 @@ import { tablesService } from './tables.service';
 export class TablesController {
   async getSections(req: Request, res: Response) {
     try {
-      const data = await tablesService.getSectionsWithTables();
+      const userId = req.user?.userId;
+      const isWaiter = req.user?.isWaiter;
+      const data = await tablesService.getSectionsWithTables(userId, isWaiter);
       res.json({ success: true, data });
     } catch (error: any) {
       console.error('Error fetching table sections:', error);

@@ -71,6 +71,46 @@ const requirePrintPermission = async (req: Request, res: Response, next: NextFun
   }
 };
 
+// Dynamic table transfer permission middleware
+const requireTableTransferPermission = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    if (req.body.supervisorPin) {
+      next();
+      return;
+    }
+    
+    const requiredPermission = PERMISSIONS.CHECK_TABLE_TRANSFER;
+    if (!req.user || !req.user.permissions.includes(requiredPermission)) {
+      res.status(403).json({ success: false, error: `Forbidden: Requires permission ${requiredPermission}` });
+      return;
+    }
+    
+    next();
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+// Dynamic waiter transfer permission middleware
+const requireWaiterTransferPermission = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    if (req.body.supervisorPin) {
+      next();
+      return;
+    }
+    
+    const requiredPermission = PERMISSIONS.CHECK_WAITER_TRANSFER;
+    if (!req.user || !req.user.permissions.includes(requiredPermission)) {
+      res.status(403).json({ success: false, error: `Forbidden: Requires permission ${requiredPermission}` });
+      return;
+    }
+    
+    next();
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
 router.get('/open', checksController.getOpenChecks);
 router.get('/:id', checksController.getCheckById);
 
@@ -85,7 +125,7 @@ router.put('/:id/items/:itemId/ent', requirePermission([PERMISSIONS.CHECK_ITEM_C
 router.put('/:id/void', requirePermission([PERMISSIONS.CHECK_VOID, PERMISSIONS.CHECK_CLOSED_VOID]), checksController.voidCheck);
 
 router.put('/:id/discount', requirePermission([PERMISSIONS.DISCOUNT_APPLY]), checksController.updateCheckDiscount.bind(checksController));
-
-// Endpoint for closing the check would go here
+router.put('/:id/table-transfer', requireTableTransferPermission, checksController.transferTable.bind(checksController));
+router.put('/:id/waiter-transfer', requireWaiterTransferPermission, checksController.transferWaiter.bind(checksController));
 
 export default router;

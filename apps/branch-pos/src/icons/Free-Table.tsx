@@ -1,9 +1,12 @@
-const FreeTable = () => (
+import React from 'react';
+
+const FreeTable = (props: React.SVGProps<SVGSVGElement>) => (
   <svg
+    viewBox="0 0 64 64"
+    className={props.className || "w-full h-full"}
+    fill="none"
     xmlns="http://www.w3.org/2000/svg"
-    xmlSpace="preserve"
-    width={64}
-    height={64}
+    {...props}
   >
     <rect width="100%" height="100%" fill="transparent" />
     <g>

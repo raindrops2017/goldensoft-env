@@ -1,0 +1,35 @@
+GOLDEN SOFT RESTAURANT
+مطعم جولدن سوفت
+Cairo, Egypt - Ph: 02-23456789
+==========================================
+Date: 2026-06-25            Time: 09:27:55
+Check #: 1000               Table: Table 6
+Waiter: #3c02               Cashier: #b381
+Guests: 1                        Prints: 2
+------------------------------------------
+Item / الصنف           Qty x Price   Total
+------------------------------------------
+Margherita Pizza / بيتزا مارجريتا
+  1 x 110.00                    110.00 EGP
+ + Extra Cheese / جبنة زيادة
+    1 x 20.00                    20.00 EGP
+ + Mushrooms / مشروم
+    1 x 25.00                    25.00 EGP
+ + Jalapeno / هالبينو
+    1 x 15.00                    15.00 EGP
+Fish Fingers with Fries / أصابع السمك مع بطاطس
+  ** COMP / ضيافة **              0.00 EGP
+------------------------------------------
+Subtotal / المجموع الفرعي       195.35 EGP
+Discount (10%) / الخصم          -17.00 EGP
+Service Charge / الخدمة         +18.36 EGP
+Tax / الضريبة                   +23.99 EGP
+==========================================
+NET TOTAL / الإجمالي            153.00 EGP
+==========================================
+Thank you for dining with us!
+شكراً لزيارتكم!
+   Check #1000 - Powered by GoldenSoft
+
+
+

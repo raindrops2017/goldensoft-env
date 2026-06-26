@@ -2,14 +2,16 @@ import { createBrowserRouter, RouterProvider } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { LoginRoute } from './routes/auth/Login';
 import { ProtectedRoute } from './components/auth/ProtectedRoute';
-import { PosTabletHome } from './routes/pos/PosTabletHome';
 import { FloorPlan } from './routes/pos/din-in/FloorPlan';
-import TableOrder from './routes/pos/TableOrder';
-import TakeawayOrder from './routes/pos/TakeawayOrder';
+import TableOrder from './routes/pos/din-in/TableOrder';
+import TakeawayOrder from './routes/pos/takeaway/TakeawayOrder';
 import { useThemeStore } from './store/useThemeStore';
+import { useFullscreenStore } from './store/useFullscreenStore';
 import { useEffect } from 'react';
 import { Toaster } from 'sonner';
 import { LanSocketProvider } from './hooks/useLanSocket';
+import { PosTabletHome } from './routes/pos/home/PosTabletHome';
+import { RootErrorBoundary } from './components/error/RootErrorBoundary';
 
 const queryClient = new QueryClient();
 
@@ -17,6 +19,7 @@ const routes = createBrowserRouter([
   {
     path: "",
     element: <ProtectedRoute />,
+    errorElement: <RootErrorBoundary />,
     children: [
       {
         path: "/",
@@ -38,12 +41,14 @@ const routes = createBrowserRouter([
   },
   {
     path: "/login",
-    element: <LoginRoute />
+    element: <LoginRoute />,
+    errorElement: <RootErrorBoundary />
   }
 ])
 
 function App() {
   const isDarkMode = useThemeStore((state) => state.isDarkMode);
+  const setIsFullscreen = useFullscreenStore((state) => state.setIsFullscreen);
 
   useEffect(() => {
     if (isDarkMode) {
@@ -55,6 +60,17 @@ function App() {
       document.body.classList.remove('dark');
     }
   }, [isDarkMode]);
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    };
+  }, [setIsFullscreen]);
 
   return (
     <QueryClientProvider client={queryClient}>

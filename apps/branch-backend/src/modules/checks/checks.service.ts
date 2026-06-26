@@ -1,10 +1,11 @@
 import { db } from '../../db';
-import { checks, checkItems, checkItemModifiers, shifts, options, checkStatus, checkKind, tables, modifiers, menuItems, users, rolePermissions, permissions, printers } from '../../db/schema';
+import { checks, checkItems, checkItemModifiers, shifts, options, checkStatus, checkKind, tables, modifiers, menuItems, users, rolePermissions, permissions, printers, roles } from '../../db/schema';
 import { eq, and, desc } from 'drizzle-orm';
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import { calculateCheckTotals } from '@goldensoft/core-schemas';
 import type { CreateCheckInput, AddCheckItemInput, VoidCheckItemInput, EntCheckItemInput, SplitCheckInput } from '@goldensoft/core-schemas';
+import { PERMISSIONS } from '@goldensoft/core-schemas';
 import { checksPrinter } from './checks.printer';
 
 export class ChecksService {
@@ -88,6 +89,33 @@ export class ChecksService {
 
   private async recalculateCheckTotals(chkId: string, tx: any = db) {
     return this.recalculateCheckTotalsSync(chkId, tx);
+  }
+
+  private async validateWaiterAccess(chk: any, userId: string, tx: any = db) {
+    const userRole = tx.select({ isWaiter: roles.isWaiter })
+      .from(users)
+      .leftJoin(roles, eq(users.roleId, roles.id))
+      .where(eq(users.id, userId))
+      .get() as any;
+
+    const isWaiterUser = userRole && !!userRole.isWaiter;
+
+    if (isWaiterUser) {
+      if (!chk.waiterId) {
+        throw new Error("Forbidden: Waiters are strictly blocked from operating on checks where waiterId is null, unless a supervisor assigns them first.");
+      }
+      if (chk.waiterId !== userId) {
+        throw new Error("Forbidden: This check belongs to another waiter.");
+      }
+    } else {
+      if (chk.cashierId !== userId) {
+        tx.update(checks)
+          .set({ cashierId: userId, updatedAt: new Date().toISOString() })
+          .where(eq(checks.id, chk.id))
+          .run();
+        chk.cashierId = userId;
+      }
+    }
   }
 
   async getOpenChecks() {
@@ -183,6 +211,13 @@ export class ChecksService {
     const now = new Date();
     const timeStr = now.toTimeString().split(' ')[0];
 
+    const userRole = await db.select({ isWaiter: roles.isWaiter })
+      .from(users)
+      .leftJoin(roles, eq(users.roleId, roles.id))
+      .where(eq(users.id, userId))
+      .limit(1);
+    const isWaiterUser = userRole.length > 0 && !!userRole[0].isWaiter;
+
     await db.insert(checks).values({
       id: checkId,
       chkNo: nextChkNo,
@@ -194,8 +229,8 @@ export class ChecksService {
       tableName: data.tableName || null,
       chkStatusId: 1, // Open
       guestCount: data.guestCount,
-      cashierId: userId,
-      waiterId: userId,
+      cashierId: isWaiterUser ? null : userId,
+      waiterId: isWaiterUser ? userId : null,
       shift: currentShift.shiftNumber,
       deliveryCharge: deliveryCharge,
       createdAt: now.toISOString(),
@@ -207,10 +242,16 @@ export class ChecksService {
 
   async addCheckItem(chkId: string, data: AddCheckItemInput, userId: string) {
     // Validate check is open
-    const chk = await db.select({ chkStatusId: checks.chkStatusId }).from(checks).where(eq(checks.id, chkId)).limit(1);
+    const chk = await db.select({ 
+      id: checks.id,
+      chkStatusId: checks.chkStatusId,
+      waiterId: checks.waiterId,
+      cashierId: checks.cashierId
+    }).from(checks).where(eq(checks.id, chkId)).limit(1);
     if (!chk.length || chk[0].chkStatusId !== 1) {
       throw new Error("Check is not open or does not exist.");
     }
+    await this.validateWaiterAccess(chk[0], userId);
 
     const itemId = crypto.randomUUID();
     
@@ -248,6 +289,17 @@ export class ChecksService {
   }
 
   async voidCheckItem(chkId: string, itemId: string, data: VoidCheckItemInput, userId: string) {
+    const chk = await db.select({
+      id: checks.id,
+      chkStatusId: checks.chkStatusId,
+      waiterId: checks.waiterId,
+      cashierId: checks.cashierId
+    }).from(checks).where(eq(checks.id, chkId)).limit(1);
+    if (!chk.length || chk[0].chkStatusId !== 1) {
+      throw new Error("Closed check cannot be modified.");
+    }
+    await this.validateWaiterAccess(chk[0], userId);
+
     const items = await db.select().from(checkItems).where(eq(checkItems.id, itemId)).limit(1);
     if (items.length === 0) throw new Error("Item not found");
     const item = items[0];
@@ -274,6 +326,17 @@ export class ChecksService {
   }
 
   async entCheckItem(chkId: string, itemId: string, data: EntCheckItemInput, userId: string) {
+    const chk = await db.select({
+      id: checks.id,
+      chkStatusId: checks.chkStatusId,
+      waiterId: checks.waiterId,
+      cashierId: checks.cashierId
+    }).from(checks).where(eq(checks.id, chkId)).limit(1);
+    if (!chk.length || chk[0].chkStatusId !== 1) {
+      throw new Error("Closed check cannot be modified.");
+    }
+    await this.validateWaiterAccess(chk[0], userId);
+
     const items = await db.select().from(checkItems).where(eq(checkItems.id, itemId)).limit(1);
     if (items.length === 0) throw new Error("Item not found");
     const item = items[0];
@@ -299,6 +362,11 @@ export class ChecksService {
   async voidCheck(chkId: string, voidReason: string, userId: string) {
     const chkList = await db.select().from(checks).where(eq(checks.id, chkId)).limit(1);
     if (chkList.length === 0) throw new Error("Check not found");
+    const chk = chkList[0];
+    if (chk.chkStatusId !== 1) {
+      throw new Error("Closed check cannot be modified.");
+    }
+    await this.validateWaiterAccess(chk, userId);
 
     // Check status 3 = Void
     await db.update(checks)
@@ -316,6 +384,11 @@ export class ChecksService {
   async updateCheckDiscount(chkId: string, data: { discount: number; discountPercent: number }, userId: string) {
     const chkList = await db.select().from(checks).where(eq(checks.id, chkId)).limit(1);
     if (chkList.length === 0) throw new Error("Check not found");
+    const chk = chkList[0];
+    if (chk.chkStatusId !== 1) {
+      throw new Error("Closed check cannot be modified.");
+    }
+    await this.validateWaiterAccess(chk, userId);
 
     await db.update(checks)
       .set({
@@ -329,7 +402,7 @@ export class ChecksService {
   }
 
   async splitCheck(chkId: string, data: SplitCheckInput, userId: string) {
-    return db.transaction((tx) => {
+    return db.transaction(async (tx) => {
       // 1. Get original check and validate it exists and is open
       const sourceCheck = this.getCheckByIdSync(chkId, tx);
       if (!sourceCheck) {
@@ -338,6 +411,16 @@ export class ChecksService {
       if (sourceCheck.chkStatusId !== 1) {
         throw new Error("Only open checks can be split");
       }
+
+      await this.validateWaiterAccess(sourceCheck, userId, tx);
+
+      const userRole = tx.select({ isWaiter: roles.isWaiter })
+        .from(users)
+        .leftJoin(roles, eq(users.roleId, roles.id))
+        .where(eq(users.id, userId))
+        .get() as any;
+      const isWaiterUser = userRole && !!userRole.isWaiter;
+      const newCashierId = isWaiterUser ? null : userId;
 
       const now = new Date();
       const timeStr = now.toTimeString().split(' ')[0];
@@ -380,7 +463,7 @@ export class ChecksService {
             tableName: sourceCheck.tableName || null,
             chkStatusId: 1, // Open
             guestCount: 1, // Default to 1
-            cashierId: userId,
+            cashierId: newCashierId,
             waiterId: sourceCheck.waiterId,
             shift: sourceCheck.shift,
             deliveryCharge: sourceCheck.deliveryCharge || 0,
@@ -501,7 +584,7 @@ export class ChecksService {
             tableName: targetTableName,
             chkStatusId: 1, // Open
             guestCount: split.guestCount || 1,
-            cashierId: userId,
+            cashierId: newCashierId,
             waiterId: sourceCheck.waiterId,
             shift: sourceCheck.shift,
             deliveryCharge: sourceCheck.deliveryCharge || 0,
@@ -659,6 +742,11 @@ export class ChecksService {
       throw new Error('Check not found');
     }
 
+    if (chk.chkStatusId !== 1) {
+      throw new Error("Closed check cannot be modified.");
+    }
+    await this.validateWaiterAccess(chk, userId);
+
     const isPrinted = (chk.printCount || 0) > 0;
     const requiredPermission = isPrinted 
       ? 'check:reprint' 
@@ -713,6 +801,95 @@ export class ChecksService {
       check: updatedCheck,
       printResult
     };
+  }
+
+  async transferTable(chkId: string, targetTableId: string, userId: string, supervisorPin?: string) {
+    const chk = this.getCheckByIdSync(chkId);
+    if (!chk) {
+      throw new Error('Check not found');
+    }
+
+    if (chk.chkStatusId !== 1) {
+      throw new Error('Only open checks can be transferred.');
+    }
+
+    await this.validateWaiterAccess(chk, userId);
+
+    const requiredPermission = PERMISSIONS.CHECK_TABLE_TRANSFER;
+    if (supervisorPin) {
+      const isValid = await this.verifySupervisorPin(supervisorPin, requiredPermission);
+      if (!isValid) {
+        throw new Error('Unauthorized: Invalid supervisor PIN or insufficient privileges.');
+      }
+    }
+
+    // Load target table
+    const targetTable = db.select().from(tables).where(eq(tables.id, targetTableId)).get() as any;
+    if (!targetTable) {
+      throw new Error('Target table not found');
+    }
+
+    const oldTableId = chk.tableId;
+
+    // Update check table
+    db.update(checks)
+      .set({
+        tableId: targetTableId,
+        tableName: targetTable.name || `T${targetTable.number}`,
+        updatedAt: new Date().toISOString()
+      })
+      .where(eq(checks.id, chkId))
+      .run();
+
+    const updatedCheck = this.getCheckByIdSync(chkId);
+    return {
+      check: updatedCheck,
+      oldTableId
+    };
+  }
+
+  async transferWaiter(chkId: string, targetWaiterId: string, userId: string, supervisorPin?: string) {
+    const chk = this.getCheckByIdSync(chkId);
+    if (!chk) {
+      throw new Error('Check not found');
+    }
+
+    if (chk.chkStatusId !== 1) {
+      throw new Error('Only open checks can be transferred.');
+    }
+
+    const requiredPermission = PERMISSIONS.CHECK_WAITER_TRANSFER;
+    if (supervisorPin) {
+      const isValid = await this.verifySupervisorPin(supervisorPin, requiredPermission);
+      if (!isValid) {
+        throw new Error('Unauthorized: Invalid supervisor PIN or insufficient privileges.');
+      }
+    }
+
+    // Verify target waiter exists and has role isWaiter = true
+    const waiterUser = db.select({
+      id: users.id,
+      isWaiter: roles.isWaiter,
+    })
+    .from(users)
+    .innerJoin(roles, eq(users.roleId, roles.id))
+    .where(and(eq(users.id, targetWaiterId), eq(users.isActive, true)))
+    .get() as any;
+
+    if (!waiterUser || !waiterUser.isWaiter) {
+      throw new Error('Target user is not a valid active waiter');
+    }
+
+    // Update check waiter
+    db.update(checks)
+      .set({
+        waiterId: targetWaiterId,
+        updatedAt: new Date().toISOString()
+      })
+      .where(eq(checks.id, chkId))
+      .run();
+
+    return this.getCheckByIdSync(chkId);
   }
 }
 

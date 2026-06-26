@@ -9,7 +9,7 @@ import type {
 } from '@goldensoft/core-schemas';
 
 export class TablesService {
-  async getSectionsWithTables() {
+  async getSectionsWithTables(userId?: string, isWaiter?: boolean) {
     const sections = db.select()
       .from(tableSections)
       .orderBy(asc(tableSections.createdAt))
@@ -20,10 +20,31 @@ export class TablesService {
       .orderBy(asc(tables.number))
       .all();
 
+    const openChecksList = db.select({
+      id: checks.id,
+      tableId: checks.tableId,
+      waiterId: checks.waiterId,
+    })
+    .from(checks)
+    .where(eq(checks.chkStatusId, 1))
+    .all();
+
     // Map tables to their sections
     return sections.map(section => ({
       ...section,
-      tables: allTables.filter(t => t.tableSectionId === section.id)
+      tables: allTables.filter(t => t.tableSectionId === section.id).map(t => {
+        const tableChecks = openChecksList.filter(c => c.tableId === t.id);
+        let belongsToCurrentUser = true;
+        
+        if (isWaiter && tableChecks.length > 0) {
+          belongsToCurrentUser = tableChecks.some(c => c.waiterId === userId);
+        }
+        
+        return {
+          ...t,
+          belongsToCurrentUser
+        };
+      })
     }));
   }
 
@@ -181,17 +202,17 @@ export class TablesService {
       const tablesList = [];
       for (let i = 0; i < tableNumbers.length; i++) {
         const tableNum = tableNumbers[i];
-        const row = Math.floor(i / 8);
-        const col = i % 8;
+        const row = Math.floor(i / 6);
+        const col = i % 6;
 
         const newTable = {
           id: crypto.randomUUID(),
           number: tableNum,
           name: `T${tableNum}`,
-          posX: 20 + col * 150,
-          posY: 20 + row * 140,
-          tableWidth: 125,
-          tableHeight: 125,
+          posX: 30 + col * 165,
+          posY: 30 + row * 110,
+          tableWidth: 100,
+          tableHeight: 100,
           angle: 0,
           shape: 'rect' as const,
           tableSectionId: sectionId,

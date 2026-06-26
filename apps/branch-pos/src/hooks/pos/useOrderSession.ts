@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect } from "react";
 import { toast } from "sonner";
 import { useChecksApi } from "../api/useChecksApi";
 import { calculateCheckTotals } from "@goldensoft/core-schemas";
+import { safeRandomUUID } from "../../lib/utils";
 import type { 
   CheckWithItems, 
   CheckItem, 
@@ -78,7 +79,7 @@ export function useOrderSession({
       return [
         ...prev,
         {
-          id: "temp-" + crypto.randomUUID(),
+          id: "temp-" + safeRandomUUID(),
           chkId: chkId || 'temp',
           menuItemId: item.id,
           itemName: item.name,
@@ -158,6 +159,12 @@ export function useOrderSession({
     }
   };
 
+  const clearCart = () => {
+    setLocalCart([]);
+    setAppliedDiscount(0);
+    setDiscountPercent(0);
+  };
+
   return {
     localCart,
     ...totals, // totalItemsValue, net, serviceCharge, tax, entTax, total
@@ -170,5 +177,6 @@ export function useOrderSession({
     setDiscountPercent,
     appliedDiscount: totals.actualDiscountValue,
     discountPercent,
+    clearCart,
   };
 }
