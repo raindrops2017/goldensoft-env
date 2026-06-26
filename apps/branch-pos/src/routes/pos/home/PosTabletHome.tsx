@@ -359,11 +359,13 @@ const tiles: TileDef[] = useMemo(() => {
           <header className="flex flex-col gap-4 rounded-[1.5rem] sm:rounded-[2rem] border border-slate-200/80 bg-white/70 dark:border-white/5 dark:bg-white/[0.02] px-4 py-3 sm:py-4 backdrop-blur-3xl shadow-2xl md:flex-row md:items-center md:justify-between md:px-6 transition-colors duration-300">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <img
-                  src="/images/logo/GSLOGO-icon.svg"
-                  alt="Golden Soft Logo"
-                  className="h-10 w-10 sm:h-12 sm:w-12 object-contain"
-                />
+                <div className="h-10 w-10 sm:h-12 sm:w-12 rounded-xl overflow-hidden border border-slate-200 dark:border-white/10 shrink-0">
+                  <img
+                    src="/images/logo/logo.jpg"
+                    alt="Golden Soft Logo"
+                    className="h-full w-full object-cover"
+                  />
+                </div>
                 <div>
                   <h2 className="text-lg font-bold tracking-tight text-slate-900 dark:text-white sm:text-xl">
                     Golden Soft

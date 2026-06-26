@@ -92,19 +92,19 @@ export function LoginRoute() {
           <div className="absolute inset-0 bg-slate-950/65 dark:bg-slate-950/75 z-10" />
 
           {/* Branding Content */}
-          <div className="relative z-20 flex items-center gap-3">
-            <div className="w-10 h-10 flex items-center justify-center rounded-xl bg-white/10 border border-white/20 backdrop-blur-md">
+          <div className="relative z-20 flex items-center gap-4">
+            <div className="w-20 h-20 flex items-center justify-center rounded-2xl overflow-hidden border border-white/20 shadow-lg">
               <img
-                src="/images/logo/GSLOGO-icon.svg"
+                src="/images/logo/logo.jpg"
                 alt="Golden Soft Logo"
-                className="w-6 h-6 invert dark:invert-0"
+                className="w-full h-full object-cover"
               />
             </div>
-            <div className="flex flex-col">
-              <span className="text-lg font-bold tracking-tight leading-tight">
+            <div className="flex flex-col justify-center">
+              <span className="text-3xl font-extrabold tracking-tight leading-none mb-1 shadow-sm">
                 Golden Soft
               </span>
-              <span className="text-[10px] text-white/60 font-semibold tracking-widest uppercase font-mono">
+              <span className="text-xs text-white/80 font-bold tracking-widest uppercase font-mono">
                 Branch POS Terminal
               </span>
             </div>
@@ -152,17 +152,19 @@ export function LoginRoute() {
             {/* Header Banner - Hidden when Numpad/PIN steps in */}
             {step === "select-user" && (
               <div className="flex flex-col shrink-0 text-center sm:text-left mb-6 transition-all duration-200">
-                <div className="flex md:hidden items-center justify-center gap-3 mb-4">
-                  <img
-                    src="/images/logo/GSLOGO-icon.svg"
-                    alt="Golden Soft Logo"
-                    className="w-8 h-8"
-                  />
-                  <div className="flex flex-col text-left">
-                    <span className="text-base font-extrabold text-slate-900 dark:text-white leading-none">
+                <div className="flex md:hidden items-center justify-center gap-3 mb-6">
+                  <div className="w-14 h-14 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-800 shadow-sm">
+                    <img
+                      src="/images/logo/logo.jpg"
+                      alt="Golden Soft Logo"
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                  <div className="flex flex-col text-left justify-center">
+                    <span className="text-2xl font-black text-slate-900 dark:text-white leading-none tracking-tight">
                       Golden Soft
                     </span>
-                    <span className="text-[10px] text-slate-500 font-semibold tracking-wider uppercase font-mono mt-0.5">
+                    <span className="text-xs text-slate-500 dark:text-slate-400 font-bold tracking-widest uppercase font-mono mt-1">
                       Terminal
                     </span>
                   </div>
