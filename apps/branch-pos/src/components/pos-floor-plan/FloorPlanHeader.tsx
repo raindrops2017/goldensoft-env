@@ -7,7 +7,8 @@ import {
   Save,
   Edit,
   ShoppingBag,
-  Motorbike
+  Motorbike,
+  List
 } from 'lucide-react';
 import type { TableSectionWithTables } from '@/hooks/useTables';
 import { HasPermission } from '../auth/HasPermission';
@@ -19,6 +20,7 @@ interface FloorPlanHeaderProps {
   sections: TableSectionWithTables[];
   activeSectionId: string | null;
   setActiveSectionId: (id: string | null) => void;
+  openedChecksCount?: number;
   isEditMode: boolean;
   setIsEditMode: (val: boolean) => void;
   canEdit: boolean;
@@ -38,6 +40,7 @@ export function FloorPlanHeader({
   sections,
   activeSectionId,
   setActiveSectionId,
+  openedChecksCount = 0,
   isEditMode,
   setIsEditMode,
   canEdit,
@@ -105,6 +108,34 @@ export function FloorPlanHeader({
             </div>
           );
         })}
+
+        {/* Opened Checks Tab */}
+        <div className="flex items-center shrink-0">
+          <button
+            onClick={() => {
+              setActiveSectionId('opened-checks');
+              setSelectedTableIds([]);
+              setActiveConfigTableId(null);
+            }}
+            className={`h-16 px-5 rounded-2xl border flex items-center gap-2.5 font-bold tracking-wide transition-all active:scale-95 duration-75 text-sm cursor-pointer ${
+              activeSectionId === 'opened-checks'
+                ? 'bg-amber-600/10 border-amber-600/40 text-amber-600 dark:text-amber-400'
+                : 'bg-white dark:bg-[#1a1626] border-slate-200 dark:border-white/5 text-slate-600 dark:text-gray-400 hover:bg-slate-100 dark:hover:bg-[#211d31]'
+            }`}
+          >
+            <List className="w-4 h-4" />
+            <span>Opened Checks</span>
+            <span
+              className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full ${
+                activeSectionId === 'opened-checks'
+                  ? 'bg-amber-600 dark:bg-amber-500 text-white'
+                  : 'bg-slate-200 dark:bg-white/10 text-slate-500 dark:text-slate-400'
+              }`}
+            >
+              {openedChecksCount}
+            </span>
+          </button>
+        </div>
 
         {isEditMode && (
           <button

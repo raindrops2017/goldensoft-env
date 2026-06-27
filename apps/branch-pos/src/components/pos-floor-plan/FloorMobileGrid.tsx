@@ -26,7 +26,7 @@ export function FloorMobileGrid({
   if (!activeSection.tables || activeSection.tables.length === 0) {
     return (
       <div className="flex-1 overflow-y-auto p-6 select-none bg-slate-50 dark:bg-[#0a0710] flex flex-col items-center justify-center py-16 text-slate-400 text-sm font-semibold">
-        No Seating tables placed in this section.
+        No tables found in this view.
       </div>
     );
   }

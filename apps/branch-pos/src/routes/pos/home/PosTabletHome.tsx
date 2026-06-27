@@ -483,7 +483,7 @@ const tiles: TileDef[] = useMemo(() => {
           {/* Footer */}
           <footer className="mt-auto flex shrink-0 flex-col items-center justify-between gap-4 rounded-[1.5rem] sm:rounded-[2rem] border border-slate-200/80 bg-white/70 dark:border-white/5 dark:bg-white/[0.02] px-4 py-3 sm:py-4 backdrop-blur-xl sm:flex-row sm:px-6 transition-colors duration-300">
             <div className="flex w-full sm:w-auto items-center justify-between sm:justify-start gap-3">
-              <div className="flex items-center gap-3 ml-12">
+              <div className="flex items-center gap-3">
                 <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-200/50 dark:bg-white/5">
                   <Phone className="size-4 text-slate-600 dark:text-white/60" />
                 </div>

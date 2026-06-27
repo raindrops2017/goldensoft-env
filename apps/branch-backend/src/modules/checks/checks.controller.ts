@@ -18,6 +18,15 @@ export class ChecksController {
     }
   }
 
+  async getHistoricalChecks(req: Request, res: Response): Promise<void> {
+    try {
+      const checks = await checksService.getHistoricalChecks(req.query);
+      res.json({ success: true, data: checks });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  }
+
   async getCheckById(req: Request, res: Response): Promise<void> {
     try {
       const check = await checksService.getCheckById(req.params.id as string);

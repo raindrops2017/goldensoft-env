@@ -19,6 +19,26 @@ export const useOpenChecks = () => {
   });
 };
 
+export const useHistoricalChecks = (filters: any) => {
+  return useQuery({
+    queryKey: ['historicalChecks', filters],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (filters.status) params.append('status', filters.status);
+      if (filters.dateFrom) params.append('dateFrom', filters.dateFrom);
+      if (filters.dateTo) params.append('dateTo', filters.dateTo);
+      if (filters.chkNo) params.append('chkNo', filters.chkNo);
+      if (filters.tableId) params.append('tableId', filters.tableId);
+      if (filters.amountOperator) params.append('amountOperator', filters.amountOperator);
+      if (filters.amountValue) params.append('amountValue', filters.amountValue);
+
+      const res = await api.get(`/checks/historical?${params.toString()}`);
+      return res.data.data as CheckWithItems[];
+    },
+    enabled: !!filters, // Maybe disable if no filters are applied? Or fetch all if they want, but usually it should be enabled when the modal is open.
+  });
+};
+
 export const useCheck = (id: string, options?: { enabled?: boolean }) => {
   return useQuery({
     queryKey: ['check', id],

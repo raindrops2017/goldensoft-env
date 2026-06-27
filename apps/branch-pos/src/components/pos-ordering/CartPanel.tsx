@@ -91,7 +91,7 @@ export function CartSidebar(props: Props) {
         </h2>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3 space-y-2">
+      <div className="min-h-0 flex-1 overflow-y-auto custom-scrollbar overscroll-contain p-3 space-y-2">
         <CartItems
           localCart={localCart}
           onRequestVoid={handleRequestVoid}
@@ -222,7 +222,7 @@ export function CartBottomSheet(props: Props & { isOpen: boolean }) {
             </div>
           </div>
 
-          <div className="overflow-y-auto p-3 space-y-2">
+          <div className="overflow-y-auto custom-scrollbar p-3 space-y-2">
             <CartItems
               localCart={localCart}
               onRequestVoid={handleRequestVoid}

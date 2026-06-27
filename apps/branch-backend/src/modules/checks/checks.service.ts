@@ -1,6 +1,6 @@
 import { db } from '../../db';
 import { checks, checkItems, checkItemModifiers, shifts, options, checkStatus, checkKind, tables, modifiers, menuItems, users, rolePermissions, permissions, printers, roles } from '../../db/schema';
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, and, desc, gte, lte, gt, lt } from 'drizzle-orm';
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import { calculateCheckTotals } from '@goldensoft/core-schemas';
@@ -120,6 +120,51 @@ export class ChecksService {
 
   async getOpenChecks() {
     return await db.select().from(checks).where(eq(checks.chkStatusId, 1)).orderBy(desc(checks.createdAt));
+  }
+
+  async getHistoricalChecks(filters: any) {
+    const conditions = [];
+
+    if (filters.status) {
+      conditions.push(eq(checks.chkStatusId, Number(filters.status)));
+    }
+    if (filters.dateFrom) {
+      conditions.push(gte(checks.chkDate, filters.dateFrom));
+    }
+    if (filters.dateTo) {
+      conditions.push(lte(checks.chkDate, filters.dateTo));
+    }
+    if (filters.chkNo) {
+      conditions.push(eq(checks.chkNo, Number(filters.chkNo)));
+    }
+    if (filters.tableId) {
+      conditions.push(eq(checks.tableId, filters.tableId));
+    }
+    
+    if (filters.amountValue !== undefined && filters.amountValue !== null && filters.amountOperator) {
+      const val = Number(filters.amountValue);
+      switch (filters.amountOperator) {
+        case '>':
+          conditions.push(gt(checks.total, val));
+          break;
+        case '<':
+          conditions.push(lt(checks.total, val));
+          break;
+        case '>=':
+          conditions.push(gte(checks.total, val));
+          break;
+        case '<=':
+          conditions.push(lte(checks.total, val));
+          break;
+        case '=':
+          conditions.push(eq(checks.total, val));
+          break;
+      }
+    }
+
+    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+    return await db.select().from(checks).where(whereClause).orderBy(desc(checks.createdAt));
   }
 
   getCheckByIdSync(id: string, tx: any = db) {

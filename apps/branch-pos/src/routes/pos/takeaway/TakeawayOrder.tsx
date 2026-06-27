@@ -393,7 +393,7 @@ export default function TakeawayOrder() {
               />
             </div>
 
-            <div className="min-h-0 overflow-y-auto overscroll-contain p-2 lg:p-3">
+            <div className="min-h-0 overflow-y-auto custom-scrollbar overscroll-contain p-2 lg:p-3">
               {viewMode === "modifiers" && selectedParentItem ? (
                 <ModifierGrid
                   parentItem={selectedParentItem}

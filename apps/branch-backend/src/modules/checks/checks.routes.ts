@@ -112,6 +112,7 @@ const requireWaiterTransferPermission = async (req: Request, res: Response, next
 };
 
 router.get('/open', checksController.getOpenChecks);
+router.get('/historical', requirePermission([PERMISSIONS.HISTORICAL_CHECKS_VIEW]), checksController.getHistoricalChecks);
 router.get('/:id', checksController.getCheckById);
 
 router.post('/', requirePermission([PERMISSIONS.CHECK_CREATE]), checksController.createCheck);

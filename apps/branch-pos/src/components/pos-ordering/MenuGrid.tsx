@@ -34,7 +34,7 @@ export default function MenuGrid({
   }
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-2 custom-scrollbar">
       {viewMode !== "groups" && (
         <div className="mb-1 flex shrink-0 items-center gap-2">
           <Button 

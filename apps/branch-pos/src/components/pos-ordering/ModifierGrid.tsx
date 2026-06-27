@@ -138,7 +138,7 @@ export default function ModifierGrid({ parentItem, onConfirm, onCancel }: Props)
           </div>
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2 lg:gap-3 overflow-y-auto">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2 lg:gap-3 overflow-y-auto custom-scrollbar">
           {items.map((mod) => {
             const isSelected = !!selectedModifiers[mod.id];
             const isLimitReached = isForced && currentCount >= maxChoices && !isSelected;

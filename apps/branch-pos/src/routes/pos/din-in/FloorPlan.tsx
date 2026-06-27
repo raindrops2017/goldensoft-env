@@ -34,6 +34,8 @@ import { FloorCanvas } from '@/components/pos-floor-plan/FloorCanvas';
 import { TableConfigModal } from '@/components/pos-floor-plan/TableConfigModal';
 import { AddSectionModal } from '@/components/pos-floor-plan/AddSectionModal';
 import { AddBatchModal } from '@/components/pos-floor-plan/AddBatchModal';
+import { HistoricalChecksModal } from '@/components/pos-floor-plan/HistoricalChecksModal';
+import { History } from 'lucide-react';
 
 const sectionIcons: Record<string, any> = {
   Outdoor: Trees,
@@ -91,6 +93,9 @@ export function FloorPlan() {
 
   // Batch delete state
   const [isDeleteBatchOpen, setIsDeleteBatchOpen] = useState(false);
+
+  // Historical Checks Modal state
+  const [isHistoricalModalOpen, setIsHistoricalModalOpen] = useState(false);
 
   // Confirmation Modals State
   const [sectionToDelete, setSectionToDelete] = useState<any | null>(null);
@@ -161,9 +166,16 @@ export function FloorPlan() {
   // Auto-select first section when loaded or restore valid cached section
   useEffect(() => {
     if (sections.length > 0) {
+      if (activeSectionId === 'opened-checks') return;
+
       const isValid = activeSectionId ? sections.some((s) => s.id === activeSectionId) : false;
       if (!isValid) {
         const cached = localStorage.getItem('goldensoft:lastSelectedSectionId');
+        if (cached === 'opened-checks') {
+          setActiveSectionId(cached);
+          return;
+        }
+
         const isCachedValid = cached ? sections.some((s) => s.id === cached) : false;
         if (isCachedValid) {
           setActiveSectionId(cached);
@@ -224,6 +236,11 @@ export function FloorPlan() {
     if (tableChecks[0].printCount > 0) return 'printed';
     return 'occupied';
   }, [currentShift, openChecks]);
+
+  // Derived list of tables that have open checks
+  const openedChecksTables = useMemo(() => {
+    return allTables.filter((t) => getTableStatus(t.id) !== 'free');
+  }, [allTables, getTableStatus]);
 
   // Status-based styles
   const statusConfig = useMemo(() => ({
@@ -819,6 +836,7 @@ export function FloorPlan() {
         sections={sections}
         activeSectionId={activeSectionId}
         setActiveSectionId={setActiveSectionId}
+        openedChecksCount={openChecks.length}
         isEditMode={isEditMode}
         setIsEditMode={setIsEditMode}
         canEdit={canEdit}
@@ -841,6 +859,15 @@ export function FloorPlan() {
             <div className="w-10 h-10 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin" />
             <span className="text-slate-400 font-medium">Loading Seating Layout...</span>
           </div>
+        ) : activeSectionId === 'opened-checks' ? (
+          <FloorMobileGrid
+            activeSection={{ tables: openedChecksTables }}
+            locks={locks}
+            getTableStatus={getTableStatus}
+            statusConfig={statusConfig}
+            tableIconMap={tableIconMap}
+            handleTableClick={handleTableClick}
+          />
         ) : !activeSection ? (
           <div className="flex-1 flex flex-col items-center justify-center gap-4 text-center p-6 z-10">
             <Layers className="w-16 h-16 text-slate-300 dark:text-slate-700" />
@@ -895,7 +922,24 @@ export function FloorPlan() {
             setIsDeleteBatchOpen={setIsDeleteBatchOpen}
           />
         )}
+
+        {/* Floating Historical Checks Button */}
+        {can(PERMISSIONS.HISTORICAL_CHECKS_VIEW) && !isEditMode && (
+          <button
+            onClick={() => setIsHistoricalModalOpen(true)}
+            className="absolute bottom-6 right-6 h-16 px-6 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl shadow-xl flex items-center gap-3 font-bold text-lg active:scale-95 transition-all z-20 cursor-pointer"
+          >
+            <History className="w-6 h-6" />
+            Historical Checks
+          </button>
+        )}
       </div>
+
+      {/* Historical Checks Modal */}
+      <HistoricalChecksModal
+        isOpen={isHistoricalModalOpen}
+        onClose={() => setIsHistoricalModalOpen(false)}
+      />
 
       {/* Floating Property configurations Modal Overlay */}
       <TableConfigModal
