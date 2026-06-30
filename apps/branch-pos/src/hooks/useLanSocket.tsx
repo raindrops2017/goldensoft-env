@@ -26,6 +26,7 @@ interface LanSocketContextType {
     chkNo?: number | null
   ) => Promise<boolean>;
   sendKdsOrder: (checkId: string, items: CheckItem[]) => Promise<boolean>;
+  logAction: (actionType: string, details: Record<string, any>, tableContext?: { tableId?: string | null; tableNo?: string | null; checkId?: string | null; permitterId?: string | null; permitterName?: string | null }) => void;
 }
 
 const LanSocketContext = createContext<LanSocketContextType | undefined>(
@@ -119,7 +120,7 @@ export const LanSocketProvider: React.FC<{ children: React.ReactNode }> = ({
   const acquireLock = useCallback((tableId: string): Promise<boolean> => {
     return new Promise((resolve) => {
       const socket = socketRef.current;
-      if (!socket || !isConnected) {
+      if (!socket || !socket.connected) {
         toast.error('Socket offline. Cannot lock table.');
         return resolve(false);
       }
@@ -134,12 +135,12 @@ export const LanSocketProvider: React.FC<{ children: React.ReactNode }> = ({
         }
       });
     });
-  }, [isConnected]);
+  }, []);
 
   const releaseLock = useCallback((tableId: string): Promise<boolean> => {
     return new Promise((resolve) => {
       const socket = socketRef.current;
-      if (!socket || !isConnected) {
+      if (!socket || !socket.connected) {
         return resolve(false);
       }
 
@@ -156,7 +157,7 @@ export const LanSocketProvider: React.FC<{ children: React.ReactNode }> = ({
         }
       });
     });
-  }, [isConnected]);
+  }, []);
 
   const updateTableStatus = useCallback((
     tableId: string,
@@ -165,7 +166,7 @@ export const LanSocketProvider: React.FC<{ children: React.ReactNode }> = ({
   ): Promise<boolean> => {
     return new Promise((resolve) => {
       const socket = socketRef.current;
-      if (!socket || !isConnected) {
+      if (!socket || !socket.connected) {
         return resolve(false);
       }
 
@@ -178,7 +179,7 @@ export const LanSocketProvider: React.FC<{ children: React.ReactNode }> = ({
         }
       });
     });
-  }, [isConnected, queryClient]);
+  }, [queryClient]);
 
   const sendKdsOrder = useCallback((
     checkId: string,
@@ -186,7 +187,7 @@ export const LanSocketProvider: React.FC<{ children: React.ReactNode }> = ({
   ): Promise<boolean> => {
     return new Promise((resolve) => {
       const socket = socketRef.current;
-      if (!socket || !isConnected) {
+      if (!socket || !socket.connected) {
         toast.error('Socket offline. Cannot send order to kitchen.');
         return resolve(false);
       }
@@ -200,7 +201,44 @@ export const LanSocketProvider: React.FC<{ children: React.ReactNode }> = ({
         }
       });
     });
-  }, [isConnected]);
+  }, []);
+
+  const logAction = useCallback((
+    actionType: string,
+    details: Record<string, any>,
+    tableContext?: { tableId?: string | null; tableNo?: string | null; checkId?: string | null; permitterId?: string | null; permitterName?: string | null }
+  ): void => {
+    const socket = socketRef.current;
+    if (!socket || !socket.connected) {
+      console.warn('⚠️ Log skipped: Socket offline.');
+      return;
+    }
+
+    const user = useAuthStore.getState().user;
+    if (!user) return;
+
+    const currentShift = queryClient.getQueryData<any>(['currentShift']);
+    const businessDate = currentShift?.businessDate || new Date().toISOString().split('T')[0];
+    const shiftId = currentShift?.id || null;
+
+    socket.emit('pos:log:create', {
+      userId: user.id || 'unknown',
+      username: user.username || 'unknown',
+      shiftId,
+      businessDate,
+      actionType,
+      tableId: tableContext?.tableId || null,
+      tableNo: tableContext?.tableNo || null,
+      checkId: tableContext?.checkId || null,
+      permitterId: tableContext?.permitterId || null,
+      permitterName: tableContext?.permitterName || null,
+      details,
+    }, (res) => {
+      if (!res.success) {
+        console.error('❌ Failed to save pos log:', res.error);
+      }
+    });
+  }, [queryClient]);
 
   return (
     <LanSocketContext.Provider
@@ -212,6 +250,7 @@ export const LanSocketProvider: React.FC<{ children: React.ReactNode }> = ({
         releaseLock,
         updateTableStatus,
         sendKdsOrder,
+        logAction,
       }}
     >
       {children}

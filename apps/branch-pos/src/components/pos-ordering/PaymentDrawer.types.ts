@@ -17,7 +17,9 @@ export const paymentSchema = z.object({
   tax: z.number().optional(),
   service: z.number().optional(),
   discountPrsn: z.number().optional(),
-  customerId: z.string().optional()
+  customerId: z.string().optional(),
+  supervisorPin: z.string().nullable().optional(),
+  supervisorId: z.string().nullable().optional()
 });
 
 export type CurrencyOption = "Egyptian Pound (EGP)" | "US Dollar (USD)" | "Euro (EUR)";
@@ -35,6 +37,12 @@ export interface PaymentDrawerProps {
     quantity: number;
     unitPrice: number;
     note?: string;
+    entQty?: number;
   }>;
   tax?: number;
+  serviceCharge?: number;
+  deliveryCharge?: number;
+  discountAmount?: number;
+  discountPrsn?: number;
+  printCount?: number;
 }

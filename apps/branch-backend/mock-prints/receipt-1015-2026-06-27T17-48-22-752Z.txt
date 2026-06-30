@@ -1,0 +1,30 @@
+GOLDEN SOFT RESTAURANT
+مطعم جولدن سوفت
+Cairo, Egypt - Ph: 02-23456789
+==========================================
+Date: 2026-06-25            Time: 20:38:32
+Check #: 1015                    Table: T1
+Waiter: #4a8f               Cashier: #b381
+Guests: 2                        Prints: 2
+------------------------------------------
+Item / الصنف           Qty x Price   Total
+------------------------------------------
+White Rice with Vermicelli / أرز بالشعرية
+  1 x 35.00                      35.00 EGP
+Foul Medames with Olive Oil / فول مدمس بالزيت الحار
+  1 x 30.00                      30.00 EGP
+Shakshuka / شكشوكة مصري
+  1 x 50.00                      50.00 EGP
+------------------------------------------
+Subtotal / المجموع الفرعي       146.83 EGP
+Service Charge / الخدمة         +13.80 EGP
+Tax / الضريبة                   +18.03 EGP
+==========================================
+NET TOTAL / الإجمالي            115.00 EGP
+==========================================
+Thank you for dining with us!
+شكراً لزيارتكم!
+   Check #1015 - Powered by GoldenSoft
+
+
+

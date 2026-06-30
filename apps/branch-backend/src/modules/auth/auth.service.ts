@@ -167,6 +167,30 @@ export class AuthService {
       },
     };
   }
+
+  getWaiters() {
+    return db.select({
+      id: users.id,
+      username: users.username,
+    })
+    .from(users)
+    .innerJoin(roles, eq(users.roleId, roles.id))
+    .where(and(eq(users.isActive, true), eq(roles.isWaiter, true)))
+    .all();
+  }
+
+  getPermittedUsers(permission: string) {
+    return db.selectDistinct({
+      id: users.id,
+      username: users.username,
+    })
+    .from(users)
+    .innerJoin(roles, eq(users.roleId, roles.id))
+    .innerJoin(rolePermissions, eq(roles.id, rolePermissions.roleId))
+    .innerJoin(permissions, eq(rolePermissions.permissionId, permissions.id))
+    .where(and(eq(users.isActive, true), eq(permissions.name, permission)))
+    .all();
+  }
 }
 
 export const authService = new AuthService();

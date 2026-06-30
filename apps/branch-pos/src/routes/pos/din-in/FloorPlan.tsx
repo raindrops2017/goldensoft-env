@@ -867,6 +867,8 @@ export function FloorPlan() {
             statusConfig={statusConfig}
             tableIconMap={tableIconMap}
             handleTableClick={handleTableClick}
+            openChecks={openChecks}
+            businessDate={currentShift?.businessDate}
           />
         ) : !activeSection ? (
           <div className="flex-1 flex flex-col items-center justify-center gap-4 text-center p-6 z-10">
@@ -896,6 +898,8 @@ export function FloorPlan() {
             statusConfig={statusConfig}
             tableIconMap={tableIconMap}
             handleTableClick={handleTableClick}
+            openChecks={openChecks}
+            businessDate={currentShift?.businessDate}
           />
         ) : (
           <FloorCanvas
@@ -920,6 +924,8 @@ export function FloorPlan() {
             handleAlignSelected={handleAlignSelected}
             handleDistributeSelected={handleDistributeSelected}
             setIsDeleteBatchOpen={setIsDeleteBatchOpen}
+            openChecks={openChecks}
+            businessDate={currentShift?.businessDate}
           />
         )}
 
@@ -930,7 +936,6 @@ export function FloorPlan() {
             className="absolute bottom-6 right-6 h-16 px-6 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl shadow-xl flex items-center gap-3 font-bold text-lg active:scale-95 transition-all z-20 cursor-pointer"
           >
             <History className="w-6 h-6" />
-            Historical Checks
           </button>
         )}
       </div>

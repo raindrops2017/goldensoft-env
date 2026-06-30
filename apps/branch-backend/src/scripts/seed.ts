@@ -173,77 +173,51 @@ async function seed() {
       branchTaxId: '123-456-789'
     });
 
-    // 6. Seed Table Sections
-    console.log('📐 Seeding table sections...');
-    const secMainHallId = crypto.randomUUID();
-    const secTerraceId = crypto.randomUUID();
-    const secVipId = crypto.randomUUID();
+    // 6. Seed Table Sections & Tables
+    console.log('📐 Seeding table sections & tables...');
+    const sectionsInfo = [
+      { name: 'Outdoor', startNum: 1, endNum: 31 },
+      { name: 'Indoor', startNum: 32, endNum: 61 },
+      { name: 'Officer', startNum: 62, endNum: 91 }
+    ];
 
-    await db.insert(tableSections).values([
-      { id: secMainHallId, name: 'Main Hall' },
-      { id: secTerraceId, name: 'Outdoor Terrace' },
-      { id: secVipId, name: 'VIP Lounge' }
-    ]);
-
-    // 7. Seed Tables
-    console.log('🪑 Seeding tables...');
-    const seededTables: { id: string; name: string }[] = [];
-    
-    // Main Hall: 10 tables
-    for (let i = 1; i <= 10; i++) {
-      const id = crypto.randomUUID();
-      const col = (i - 1) % 4;
-      const row = Math.floor((i - 1) / 4);
-      await db.insert(tables).values({
-        id,
-        number: i,
-        name: `Table ${i}`,
-        posX: 50 + col * 180,
-        posY: 50 + row * 180,
-        tableWidth: 120,
-        tableHeight: 120,
-        shape: i % 3 === 0 ? 'circle' : 'rect',
-        tableSectionId: secMainHallId
+    for (const sec of sectionsInfo) {
+      const sectionId = crypto.randomUUID();
+      await db.insert(tableSections).values({
+        id: sectionId,
+        name: sec.name,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
       });
-      seededTables.push({ id, name: `Table ${i}` });
-    }
 
-    // Terrace: 10 tables
-    for (let i = 11; i <= 20; i++) {
-      const id = crypto.randomUUID();
-      const col = (i - 11) % 4;
-      const row = Math.floor((i - 11) / 4);
-      await db.insert(tables).values({
-        id,
-        number: i,
-        name: `Table ${i}`,
-        posX: 50 + col * 180,
-        posY: 50 + row * 180,
-        tableWidth: 120,
-        tableHeight: 120,
-        shape: 'rect',
-        tableSectionId: secTerraceId
-      });
-      seededTables.push({ id, name: `Table ${i}` });
-    }
+      // Generate table numbers from startNum to endNum, excluding 13
+      const tableNumbers = [];
+      for (let num = sec.startNum; num <= sec.endNum; num++) {
+        if (num !== 13) {
+          tableNumbers.push(num);
+        }
+      }
 
-    // VIP Lounge: 5 tables
-    for (let i = 21; i <= 25; i++) {
-      const id = crypto.randomUUID();
-      const col = (i - 21) % 3;
-      const row = Math.floor((i - 21) / 3);
-      await db.insert(tables).values({
-        id,
-        number: i,
-        name: `VIP ${i}`,
-        posX: 100 + col * 220,
-        posY: 100 + row * 220,
-        tableWidth: 150,
-        tableHeight: 150,
-        shape: 'circle',
-        tableSectionId: secVipId
-      });
-      seededTables.push({ id, name: `VIP ${i}` });
+      for (let i = 0; i < tableNumbers.length; i++) {
+        const tableNum = tableNumbers[i];
+        const row = Math.floor(i / 6);
+        const col = i % 6;
+
+        await db.insert(tables).values({
+          id: crypto.randomUUID(),
+          number: tableNum,
+          name: `T${tableNum}`,
+          posX: 30 + col * 165,
+          posY: 30 + row * 110,
+          tableWidth: 100,
+          tableHeight: 100,
+          angle: 0,
+          shape: 'rect',
+          tableSectionId: sectionId,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        });
+      }
     }
 
     // 8. Seed Printers
@@ -263,11 +237,15 @@ async function seed() {
     const custWalkInId = crypto.randomUUID();
     const custSherifId = crypto.randomUUID();
     const custMariamId = crypto.randomUUID();
+    const custStaffId = crypto.randomUUID();
+    const custOfficerId = crypto.randomUUID();
 
     await db.insert(customers).values([
       { id: custWalkInId, name: 'Walk-In Customer', kind: 1, discount: 0 },
       { id: custSherifId, name: 'Sherif Abdel-Meguid', kind: 1, discount: 10 }, // 10% loyalty discount
-      { id: custMariamId, name: 'Mariam Aly', kind: 1, discount: 5 }
+      { id: custMariamId, name: 'Mariam Aly', kind: 1, discount: 5 },
+      { id: custStaffId, name: 'Staff Member Ahmed', kind: 2, discount: 15 },
+      { id: custOfficerId, name: 'Officer Khaled', kind: 3, discount: 0 }
     ]);
 
     // 10. Seed Delivery Zones & Pilots
@@ -628,15 +606,22 @@ async function seed() {
     console.log('🏁 Seeding check statuses & kinds...');
     await db.insert(checkStatus).values([
       { id: 1, status: 'Open' },
-      { id: 2, status: 'Paid' },
-      { id: 3, status: 'Void' },
-      { id: 4, status: 'Refunded' }
+      { id: 2, status: 'Cash' },
+      { id: 3, status: 'Visa' },
+      { id: 4, status: 'Owner CL' },
+      { id: 5, status: 'Voided' },
+      { id: 6, status: 'Mixed' },
+      { id: 7, status: 'Comp' },
+      { id: 8, status: 'Officer' },
+      { id: 9, status: 'Merged' },
+      { id: 10, status: 'Staff CL' },
+      { id: 11, status: 'Food Test' }
     ]);
 
     await db.insert(checkKind).values([
-      { id: 1, kind: 'Dining' },
-      { id: 2, kind: 'TakeAway' },
-      { id: 3, kind: 'Delivery' }
+      { id: 1, kind: 'Dine in' },
+      { id: 2, kind: 'Delivery' },
+      { id: 3, kind: 'Take away' }
     ]);
 
     console.log('🗑️ Seeding void reasons...');

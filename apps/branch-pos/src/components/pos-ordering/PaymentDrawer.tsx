@@ -1,33 +1,64 @@
 import { useEffect, useState, useRef } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { X, Search, Banknote, CreditCard, UserCheck, Layers, Award, User, ShieldCheck } from "lucide-react";
+import { X, Search, Banknote, CreditCard, UserCheck, Layers, Award, User, ShieldCheck, Delete } from "lucide-react";
 import type { PaymentDrawerProps, PaymentFormData } from "./PaymentDrawer.types";
 import { paymentSchema } from "./PaymentDrawer.types";
-import { NumpadPopup } from "./NumpadPopup";
-import { useQuery } from "@tanstack/react-query";
-// mock fetchCustsList for now since the file is missing
-const fetchCustsList = async () => [];
+import { useCustomers } from "@/hooks/api/useChecksApi";
+import { SupervisorOverrideDialog } from "./SupervisorOverrideDialog";
+import { usePermissions } from "@/hooks/usePermissions";
+import { api } from "@/lib/api";
+import { ConfirmationDialog } from "@/components/ui/ConfirmationDialog";
 
-const CURRENCIES = ["Egyptian Pound (EGP)", "US Dollar (USD)", "Euro (EUR)"];
-const CARD_TYPES = ["Visa", "Mastercard", "Amex"];
+const METHODS = [
+  { id: "cash", label: "Cash", icon: Banknote },
+  { id: "visa", label: "Visa", icon: CreditCard },
+  { id: "cl", label: "CL", icon: UserCheck },
+  { id: "mixed", label: "Mixed", icon: Layers }
+];
 
-export default function PaymentDrawer({ isOpen, onClose, checkTotal, tableNumber, onConfirm, items, tax }: PaymentDrawerProps) {
+export default function PaymentDrawer({
+  isOpen,
+  onClose,
+  checkTotal,
+  tableNumber,
+  onConfirm,
+  items,
+  tax,
+  serviceCharge,
+  deliveryCharge,
+  discountAmount,
+  discountPrsn,
+  printCount
+}: PaymentDrawerProps) {
   const [shouldRender, setShouldRender] = useState(isOpen);
-  const [activeNumpad, setActiveNumpad] = useState<string | null>(null);
-  const [anchorEl, setAnchorEl] = useState<HTMLInputElement | null>(null);
   const [isCustModalOpen, setIsCustModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [kindFilter, setKindFilter] = useState<number | null>(null);
-
   const drawerRef = useRef<HTMLDivElement>(null);
-  const roundedTotal = Number(checkTotal.toFixed(2));
 
-  const { data: custsData } = useQuery({
-    queryKey: ["reports", "custs-list"],
-    queryFn: () => fetchCustsList(),
-    enabled: isOpen,
-  });
+  // Food Test State
+  const [isFoodTest, setIsFoodTest] = useState(false);
+
+  // Comp check confirmation state
+  const [compConfirmOpen, setCompConfirmOpen] = useState(false);
+
+  // Supervisor states for Comp Check / CL unlock
+  const [supervisorOpen, setSupervisorOpen] = useState(false);
+  const [supervisorError, setSupervisorError] = useState<string | null>(null);
+  const [supervisorLoading, setSupervisorLoading] = useState(false);
+  const [clUnlockActive, setClUnlockActive] = useState(false);
+  const [clAuthorized, setClAuthorized] = useState(false);
+
+  // Keypad focus state
+  const [activeInput, setActiveInput] = useState<"cash" | "visaAmount" | "clAmount" | "tips">("cash");
+  const [keypadString, setKeypadString] = useState("");
+  const [isFirstType, setIsFirstType] = useState(true);
+
+  const roundedTotal = Number(checkTotal.toFixed(2));
+  const { data: custsData } = useCustomers();
+  const { hasPermission } = usePermissions();
+
+  const hasClPermission = hasPermission("check.officer:close") || clAuthorized;
 
   useEffect(() => {
     if (!isOpen) {
@@ -38,7 +69,7 @@ export default function PaymentDrawer({ isOpen, onClose, checkTotal, tableNumber
     }
   }, [isOpen]);
 
-  const { register, control, handleSubmit, setValue, reset, formState: { errors, isValid } } = useForm<PaymentFormData>({
+  const { control, handleSubmit, setValue, reset } = useForm<PaymentFormData>({
     resolver: zodResolver(paymentSchema) as any,
     mode: "onChange",
     defaultValues: {
@@ -53,6 +84,8 @@ export default function PaymentDrawer({ isOpen, onClose, checkTotal, tableNumber
       cardType: "Visa",
       tips: 0,
       isComp: false,
+      discountAmount: discountAmount || 0,
+      discountPrsn: discountPrsn || 0,
     }
   });
 
@@ -71,10 +104,16 @@ export default function PaymentDrawer({ isOpen, onClose, checkTotal, tableNumber
         cardType: "Visa",
         tips: 0,
         isComp: false,
+        discountAmount: discountAmount || 0,
+        discountPrsn: discountPrsn || 0,
       });
-      setActiveNumpad(null);
+      setActiveInput("cash");
+      setKeypadString(roundedTotal.toString());
+      setIsFirstType(true);
+      setClAuthorized(false);
+      setIsFoodTest(false);
     }
-  }, [roundedTotal, isOpen, reset]);
+  }, [roundedTotal, isOpen, reset, discountAmount, discountPrsn]);
 
   const paymentMethod = useWatch({ control, name: "paymentMethod" }) || "cash";
   const cash = Number(useWatch({ control, name: "cash" })) || 0;
@@ -83,144 +122,324 @@ export default function PaymentDrawer({ isOpen, onClose, checkTotal, tableNumber
   const tips = Number(useWatch({ control, name: "tips" })) || 0;
   const isComp = useWatch({ control, name: "isComp" }) || false;
   const customerName = useWatch({ control, name: "customerName" }) || "Cash Customer";
+  const customerId = useWatch({ control, name: "customerId" });
 
-  // Watch overrides from form
   const formDiscountAmount = useWatch({ control, name: "discountAmount" }) || 0;
+  const formDiscountPrsn = useWatch({ control, name: "discountPrsn" }) || 0;
   const formChkStut = useWatch({ control, name: "chkStut" });
 
-  // Calculate dynamic displayed total based on selected customer type
+  // Calculate dynamic displayed total
   const netPriceOnly = items.reduce((acc, item) => acc + (item.quantity * item.unitPrice), 0);
-  const displayedTotal = Number((formChkStut === 8 
+  const displayedTotal = Number(((formChkStut === 8 || formChkStut === 11 || isFoodTest)
     ? netPriceOnly
     : formDiscountAmount > 0 
       ? (roundedTotal - formDiscountAmount)
       : roundedTotal
   ).toFixed(2));
 
-  // Watch Method changes to auto-fill
-  const prevMethodRef = useRef(paymentMethod);
+  // Auto-focus and initialize inputs when payment method changes
   useEffect(() => {
-    if (prevMethodRef.current !== paymentMethod) {
-      if (paymentMethod === "cash") {
-        setValue("cash", displayedTotal, { shouldValidate: true });
-        setValue("visaAmount", 0, { shouldValidate: true });
-        setValue("clAmount", 0, { shouldValidate: true });
-      } else if (paymentMethod === "visa") {
-        setValue("visaAmount", displayedTotal, { shouldValidate: true });
-        setValue("cash", 0, { shouldValidate: true });
-        setValue("clAmount", 0, { shouldValidate: true });
-      } else if (paymentMethod === "cl") {
-        setValue("clAmount", displayedTotal, { shouldValidate: true });
-        setValue("cash", 0, { shouldValidate: true });
-        setValue("visaAmount", 0, { shouldValidate: true });
-      } else if (paymentMethod === "mixed") {
-        setValue("visaAmount", 0, { shouldValidate: true });
-        setValue("cash", displayedTotal, { shouldValidate: true });
-        setValue("clAmount", 0, { shouldValidate: true });
-      }
-      prevMethodRef.current = paymentMethod;
-    }
-  }, [paymentMethod, displayedTotal, setValue]);
-
-  // Smart mixed auto-fill Cash
-  useEffect(() => {
-    if (paymentMethod === "mixed" || paymentMethod === "cash") {
-      const autoCash = Math.max(0, displayedTotal - visaAmount - clAmount);
-      if (cash !== autoCash) {
-        setValue("cash", parseFloat(autoCash.toFixed(2)), { shouldValidate: true });
-      }
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visaAmount, clAmount, displayedTotal, paymentMethod]);
-
-  // Outside click for active numpad
-  useEffect(() => {
-    if (!activeNumpad) return;
-    const handleOutside = () => {
-      setActiveNumpad(null);
-    };
-    document.addEventListener("mousedown", handleOutside);
-    return () => document.removeEventListener("mousedown", handleOutside);
-  }, [activeNumpad]);
-
-  const totalPaid = cash + clAmount + visaAmount;
-  const remaining = displayedTotal - totalPaid;
-  const changeDue = Math.max(0, cash - Math.max(0, displayedTotal - clAmount - visaAmount));
-  const isPaid = totalPaid >= displayedTotal;
-
-  const onSubmit = (data: PaymentFormData) => {
-    if (isPaid) {
-      onConfirm(data);
-    }
-  };
-
-  const toggleComp = () => {
-    const nextComp = !isComp;
-    setValue("isComp", nextComp, { shouldValidate: true });
-    if (nextComp) {
+    if (paymentMethod === "cash") {
+      setActiveInput("cash");
+      setValue("cash", roundedTotal, { shouldValidate: true });
+      setValue("visaAmount", 0, { shouldValidate: true });
+      setValue("clAmount", 0, { shouldValidate: true });
       setValue("tips", 0, { shouldValidate: true });
+      setKeypadString(roundedTotal.toString());
+      setIsFirstType(true);
+    } else if (paymentMethod === "visa") {
+      setActiveInput("visaAmount");
+      setValue("cash", 0, { shouldValidate: true });
+      setValue("visaAmount", roundedTotal, { shouldValidate: true });
+      setValue("clAmount", 0, { shouldValidate: true });
+      setValue("tips", 0, { shouldValidate: true });
+      setKeypadString(roundedTotal.toString());
+      setIsFirstType(true);
+    } else if (paymentMethod === "cl") {
+      setActiveInput("clAmount");
+      setValue("cash", 0, { shouldValidate: true });
+      setValue("visaAmount", 0, { shouldValidate: true });
+      setValue("tips", 0, { shouldValidate: true });
+      if (isFoodTest) {
+        setValue("customerName", "Food Test", { shouldValidate: true });
+        setValue("clAmount", parseFloat(netPriceOnly.toFixed(2)), { shouldValidate: true });
+        setValue("chkStut", 11, { shouldValidate: true });
+        setKeypadString(netPriceOnly.toFixed(2));
+      } else if (customerName === "Cash Customer" || !customerId) {
+        setValue("clAmount", roundedTotal, { shouldValidate: true });
+        setKeypadString(roundedTotal.toString());
+      } else {
+        setKeypadString(clAmount.toString());
+      }
+      setIsFirstType(true);
+    } else if (paymentMethod === "mixed") {
+      setActiveInput("cash");
+      setValue("cash", roundedTotal, { shouldValidate: true });
+      setValue("visaAmount", 0, { shouldValidate: true });
+      setValue("clAmount", 0, { shouldValidate: true });
+      setValue("tips", 0, { shouldValidate: true });
+      setKeypadString(roundedTotal.toString());
+      setIsFirstType(true);
     }
-  };
+  }, [paymentMethod, roundedTotal, setValue, isFoodTest]);
 
-  if (!shouldRender) return null;
+  // Watch visaAmount when in visa mode to auto-move excess to tips
+  useEffect(() => {
+    if (paymentMethod === "visa" && visaAmount > displayedTotal) {
+      const excess = visaAmount - displayedTotal;
+      setValue("visaAmount", displayedTotal, { shouldValidate: true });
+      setValue("tips", excess, { shouldValidate: true });
+    }
+  }, [visaAmount, paymentMethod, displayedTotal, setValue]);
 
-  const getActiveRef = () => {
-    return { current: anchorEl };
-  };
+  // Watch visaAmount and clAmount changes when in mixed mode to subtract from cash
+  useEffect(() => {
+    if (paymentMethod === "mixed") {
+      const calculatedCash = Math.max(0, displayedTotal - visaAmount - clAmount);
+      if (cash !== calculatedCash) {
+        setValue("cash", calculatedCash, { shouldValidate: true });
+      }
+    }
+  }, [visaAmount, clAmount, paymentMethod, displayedTotal, setValue, cash]);
 
+  // Sync keypad string when active input changes
   const getActiveValue = () => {
-    switch (activeNumpad) {
-      case "cash": return cash.toString();
-      case "visaAmount": return visaAmount.toString();
-      case "clAmount": return clAmount.toString();
-      case "tips": return tips.toString();
-      default: return "";
+    switch (activeInput) {
+      case "cash": return cash;
+      case "visaAmount": return visaAmount;
+      case "clAmount": return clAmount;
+      case "tips": return tips;
+      default: return 0;
     }
   };
 
-  const handleNumpadChange = (valStr: string) => {
-    if (activeNumpad) {
-      setValue(activeNumpad as any, parseFloat(valStr) || 0, { shouldValidate: true });
+  const handleInputActivate = (newInput: typeof activeInput) => {
+    if (paymentMethod === "mixed") {
+      // Auto-fill remaining unpaid balance on select
+      let otherPaid = 0;
+      if (newInput !== "cash") otherPaid += cash;
+      if (newInput !== "visaAmount") otherPaid += visaAmount;
+      if (newInput !== "clAmount") otherPaid += clAmount;
+
+      const unpaid = Math.max(0, displayedTotal - otherPaid);
+      setValue(newInput as any, unpaid, { shouldValidate: true });
+      setKeypadString(unpaid === 0 ? "" : unpaid.toString());
+    } else {
+      const val = getActiveValue();
+      setKeypadString(val === 0 ? "" : val.toString());
     }
+
+    setActiveInput(newInput);
+    setIsFirstType(true);
+  };
+
+  const totalPaid = (paymentMethod === "cash" 
+    ? cash
+    : paymentMethod === "visa"
+      ? visaAmount
+      : paymentMethod === "cl"
+        ? clAmount
+        : paymentMethod === "mixed"
+          ? (cash + visaAmount + clAmount)
+          : 0);
+
+  // Tips logic
+  const changeDue = Math.max(0, cash - Math.max(0, displayedTotal - clAmount - visaAmount));
+
+  // Strict validation for CL customer mapping
+  const isClValid = (paymentMethod === "cl")
+    ? (isFoodTest || !!customerId)
+    : (paymentMethod === "mixed")
+      ? (clAmount === 0 || !!customerId)
+      : true;
+
+  const isPaid = ((paymentMethod === "cash" 
+    ? cash >= displayedTotal 
+    : totalPaid >= displayedTotal) && isClValid);
+
+   const onSubmit = (data: PaymentFormData) => {
+    if (isComp) {
+      onConfirm(data);
+      return;
+    }
+
+    // Prevent payment if the paid amount is less than the check total or CL customer is missing
+    if (!isPaid) {
+      if (!isClValid) {
+        alert("Cannot close check: CL payment requires a selected customer (or Food Test).");
+      } else {
+        alert("Cannot close check: Unpaid balance remaining.");
+      }
+      return;
+    }
+
+    const finalData = { ...data };
+
+    if (finalData.paymentMethod === "mixed") {
+      const hasCash = (finalData.cash || 0) > 0;
+      const hasVisa = (finalData.visaAmount || 0) > 0;
+      const hasCL = (finalData.clAmount || 0) > 0;
+
+      const activeMethodsCount = [hasCash, hasVisa, hasCL].filter(Boolean).length;
+
+      if (activeMethodsCount === 1) {
+        if (hasCash) {
+          finalData.paymentMethod = "cash";
+          finalData.visaAmount = 0;
+          finalData.clAmount = 0;
+          finalData.chkStut = 2; // Cash close
+        } else if (hasVisa) {
+          finalData.paymentMethod = "visa";
+          finalData.cash = 0;
+          finalData.clAmount = 0;
+          finalData.chkStut = 3; // Visa close
+        } else if (hasCL) {
+          finalData.paymentMethod = "cl";
+          finalData.cash = 0;
+          finalData.visaAmount = 0;
+
+          // Determine status chkStut based on the customer kind
+          if (finalData.customerName === "Food Test" || isFoodTest) {
+            finalData.chkStut = 11; // Food Test
+          } else {
+            const selectedCustomer = allowedCustomers.find((c: any) => c.id === finalData.customerId);
+            if (selectedCustomer) {
+              if (selectedCustomer.kind === 1) {
+                finalData.chkStut = 4; // Owner CL
+              } else if (selectedCustomer.kind === 2) {
+                finalData.chkStut = 10; // Staff CL
+              } else if (selectedCustomer.kind === 3) {
+                finalData.chkStut = 8; // Officer/VIP CL
+              } else {
+                finalData.chkStut = 4; // default
+              }
+            } else {
+              finalData.chkStut = 4; // default
+            }
+          }
+        }
+      }
+    }
+
+    onConfirm(finalData);
+  };
+
+  // Keyboard keypad press handler
+  const handleKeypadPress = (key: string) => {
+    let newStr = keypadString;
+    
+    if (isFirstType) {
+      setIsFirstType(false);
+      if (key === "back") {
+        newStr = "";
+      } else if (key === ".") {
+        newStr = "0.";
+      } else {
+        newStr = key;
+      }
+    } else {
+      if (key === "back") {
+        newStr = newStr.slice(0, -1);
+      } else if (key === ".") {
+        if (!newStr.includes(".")) {
+          newStr = newStr === "" ? "0." : newStr + ".";
+        }
+      } else {
+        const dotIndex = newStr.indexOf(".");
+        if (dotIndex !== -1 && newStr.length - dotIndex > 2) {
+          return; // limit to 2 decimal places
+        }
+        newStr = newStr === "" && key === "0" ? "" : newStr + key;
+      }
+    }
+    
+    setKeypadString(newStr);
+    const parsedVal = parseFloat(newStr) || 0;
+    setValue(activeInput as any, parsedVal, { shouldValidate: true });
+  };
+
+  // Quick cash helpers
+  const handleExactCash = () => {
+    const cashNeeded = Math.max(0, displayedTotal - visaAmount - clAmount);
+    setValue("cash", cashNeeded, { shouldValidate: true });
+    setKeypadString(cashNeeded.toFixed(2));
+    setIsFirstType(true);
+  };
+
+  const handleAddCash = (amount: number) => {
+    const currentVal = parseFloat(keypadString) || 0;
+    const newVal = currentVal + amount;
+    setValue("cash", newVal, { shouldValidate: true });
+    setKeypadString(newVal.toString());
+    setIsFirstType(true);
   };
 
   const handleSelectCustomer = (customer: any) => {
-    setValue("customerId", customer.code, { shouldValidate: true });
+    setValue("customerId", customer.id, { shouldValidate: true });
     setValue("customerName", customer.name, { shouldValidate: true });
 
     const isOwner = customer.kind === 1;
-    // const isStaff = customer.kind === 2;
     const isOfficer = customer.kind === 3;
 
-    if (isOfficer) {
-      // Officer check: net price only, no service charge, no tax, no discount
-      setValue("clAmount", parseFloat(netPriceOnly.toFixed(2)), { shouldValidate: true });
-      setValue("chkStut", 8, { shouldValidate: true });
-      setValue("tax", 0, { shouldValidate: true });
-      setValue("service", 0, { shouldValidate: true });
-      setValue("discountAmount", 0, { shouldValidate: true });
-      setValue("discountPrsn", 0, { shouldValidate: true });
-    } else {
-      // CL check: Owner CL (status 4) or Staff CL (status 10)
-      const targetStut = isOwner ? 4 : 10;
-      setValue("chkStut", targetStut, { shouldValidate: true });
-
-      // Apply customer discount if present
-      const discountPercent = Number(customer.discount) || 0;
-      if (discountPercent > 0) {
-        const discountVal = checkTotal * (discountPercent / 100);
-        const adjustedTotal = checkTotal - discountVal;
-        setValue("clAmount", parseFloat(adjustedTotal.toFixed(2)), { shouldValidate: true });
-        setValue("discountAmount", parseFloat(discountVal.toFixed(2)), { shouldValidate: true });
-        setValue("discountPrsn", discountPercent, { shouldValidate: true });
-      } else {
-        setValue("clAmount", roundedTotal, { shouldValidate: true });
+    if (paymentMethod === "cl") {
+      if (isOfficer) {
+        setValue("clAmount", parseFloat(netPriceOnly.toFixed(2)), { shouldValidate: true });
+        setValue("chkStut", 8, { shouldValidate: true });
+        setValue("tax", 0, { shouldValidate: true });
+        setValue("service", 0, { shouldValidate: true });
         setValue("discountAmount", 0, { shouldValidate: true });
         setValue("discountPrsn", 0, { shouldValidate: true });
+        setKeypadString(netPriceOnly.toFixed(2));
+      } else {
+        const targetStut = isOwner ? 4 : 10;
+        setValue("chkStut", targetStut, { shouldValidate: true });
+
+        const discountPercent = Number(customer.discount) || 0;
+        if (discountPercent > 0) {
+          const discountVal = netPriceOnly * (discountPercent / 100);
+          const adjustedTotal = checkTotal - discountVal;
+          setValue("clAmount", parseFloat(adjustedTotal.toFixed(2)), { shouldValidate: true });
+          setValue("discountAmount", parseFloat(discountVal.toFixed(2)), { shouldValidate: true });
+          setValue("discountPrsn", discountPercent, { shouldValidate: true });
+          setKeypadString(adjustedTotal.toFixed(2));
+        } else {
+          setValue("clAmount", roundedTotal, { shouldValidate: true });
+          setValue("discountAmount", 0, { shouldValidate: true });
+          setValue("discountPrsn", 0, { shouldValidate: true });
+          setKeypadString(roundedTotal.toString());
+        }
+        setValue("tax", tax, { shouldValidate: true });
+        setValue("service", undefined, { shouldValidate: true });
       }
-      // Revert normal tax and service
-      setValue("tax", tax, { shouldValidate: true });
-      setValue("service", undefined, { shouldValidate: true });
+    } else if (paymentMethod === "mixed") {
+      // Mixed mode: selecting customer sets target status, applies discount, but keeps clAmount at 0 until user types it
+      if (isOfficer) {
+        setValue("chkStut", 8, { shouldValidate: true });
+        setValue("tax", 0, { shouldValidate: true });
+        setValue("service", 0, { shouldValidate: true });
+        setValue("discountAmount", 0, { shouldValidate: true });
+        setValue("discountPrsn", 0, { shouldValidate: true });
+      } else {
+        const targetStut = isOwner ? 4 : 10;
+        setValue("chkStut", targetStut, { shouldValidate: true });
+
+        const discountPercent = Number(customer.discount) || 0;
+        if (discountPercent > 0) {
+          const discountVal = netPriceOnly * (discountPercent / 100);
+          setValue("discountAmount", parseFloat(discountVal.toFixed(2)), { shouldValidate: true });
+          setValue("discountPrsn", discountPercent, { shouldValidate: true });
+        } else {
+          setValue("discountAmount", 0, { shouldValidate: true });
+          setValue("discountPrsn", 0, { shouldValidate: true });
+        }
+        setValue("tax", tax, { shouldValidate: true });
+        setValue("service", undefined, { shouldValidate: true });
+      }
+      
+      setValue("clAmount", 0, { shouldValidate: true });
+      setActiveInput("clAmount");
+      setKeypadString("");
+      setIsFirstType(true);
     }
 
     setIsCustModalOpen(false);
@@ -235,27 +454,149 @@ export default function PaymentDrawer({ isOpen, onClose, checkTotal, tableNumber
     setValue("discountPrsn", 0, { shouldValidate: true });
     setValue("tax", tax, { shouldValidate: true });
     setValue("service", undefined, { shouldValidate: true });
+    setKeypadString(roundedTotal.toString());
   };
 
-  // Filter kinds 1, 2, and 3
+  const handleMethodChange = (newMethod: string) => {
+    setValue("paymentMethod", newMethod as any, { shouldValidate: true });
+    if (newMethod !== "cl") {
+      handleClearCustomer();
+      setIsFoodTest(false);
+    }
+  };
+
+  // Comp check Click handler (checks permissions first)
+  const handleCompClick = async () => {
+    const isPrinted = (printCount || 0) > 0;
+    const requiredPermission = isPrinted ? 'check.printed:comp' : 'check:comp';
+    
+    if (hasPermission(requiredPermission)) {
+      setCompConfirmOpen(true);
+    } else {
+      setSupervisorError(null);
+      setClUnlockActive(false);
+      setSupervisorOpen(true);
+    }
+  };
+
+  const handleCompDialogConfirm = async () => {
+    setSupervisorLoading(true);
+    try {
+      const values = {
+        paymentMethod: "cash",
+        cash: 0,
+        visaAmount: 0,
+        clAmount: 0,
+        paidCash: 0,
+        tips: 0,
+        isComp: true,
+        chkStut: 7,
+        discountAmount: formDiscountAmount || 0,
+        discountPrsn: formDiscountPrsn || 0,
+        customerId: control._defaultValues.customerId || null,
+        customerName: control._defaultValues.customerName || null,
+      };
+      await onConfirm(values as any);
+    } catch (err: any) {
+      alert(err.message || "Failed to complimentary check");
+    } finally {
+      setSupervisorLoading(false);
+      setCompConfirmOpen(false);
+    }
+  };
+
+  // Supervisor override confirmation handler (handles Comp or CL unlock)
+  const handleCompConfirm = async (pin: string, svId: string) => {
+    setSupervisorLoading(true);
+    setSupervisorError(null);
+    try {
+      if (clUnlockActive) {
+        const response = await api.post("/auth/login", { userId: svId, pin });
+        const user = response.data.data.user;
+        const hasOfficerPerm = user.permissions?.includes("check.officer:close");
+        if (!hasOfficerPerm) {
+          setSupervisorError("Supervisor does not have check.officer:close permission");
+          return;
+        }
+        setClAuthorized(true);
+        setValue("supervisorPin", pin, { shouldValidate: true });
+        setValue("supervisorId", svId, { shouldValidate: true });
+        setSupervisorOpen(false);
+      } else {
+        const values = {
+          paymentMethod: "cash",
+          cash: 0,
+          visaAmount: 0,
+          clAmount: 0,
+          paidCash: 0,
+          tips: 0,
+          isComp: true,
+          chkStut: 7,
+          discountAmount: formDiscountAmount || 0,
+          discountPrsn: formDiscountPrsn || 0,
+          customerId: control._defaultValues.customerId || null,
+          customerName: control._defaultValues.customerName || null,
+          supervisorPin: pin,
+          supervisorId: svId,
+        };
+        
+        await onConfirm(values as any);
+        setSupervisorOpen(false);
+      }
+    } catch (err: any) {
+      setSupervisorError(err.response?.data?.error || err.message || "Authorization failed");
+    } finally {
+      setSupervisorLoading(false);
+      setClUnlockActive(false);
+    }
+  };
+
   const allowedCustomers = (custsData || []).filter(
     (c: any) => c.kind === 1 || c.kind === 2 || c.kind === 3
   );
 
   const searchedCustomers = allowedCustomers.filter((c: any) => {
-    const matchesSearch =
-      c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      c.code.toString().includes(searchQuery);
-    const matchesKind = kindFilter === null || c.kind === kindFilter;
-    return matchesSearch && matchesKind;
+    return c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      c.id.toLowerCase().includes(searchQuery.toLowerCase());
   });
 
-  const METHODS = [
-    { id: "cash", label: "Cash", icon: Banknote },
-    { id: "visa", label: "Visa", icon: CreditCard },
-    { id: "cl", label: "CL", icon: UserCheck },
-    { id: "mixed", label: "Mixed", icon: Layers }
-  ];
+  const renderedItems: Array<{
+    name: string;
+    quantity: number;
+    price: number;
+    isCompItem?: boolean;
+    note?: string;
+    unitPrice: number;
+  }> = [];
+
+  items.forEach(item => {
+    const totalQty = item.quantity;
+    const compQty = item.entQty || 0;
+    const regularQty = totalQty - compQty;
+
+    if (regularQty > 0) {
+      renderedItems.push({
+        name: item.name,
+        quantity: regularQty,
+        price: regularQty * item.unitPrice,
+        note: item.note,
+        unitPrice: item.unitPrice
+      });
+    }
+
+    if (compQty > 0) {
+      renderedItems.push({
+        name: item.name,
+        quantity: compQty,
+        price: 0,
+        isCompItem: true,
+        note: item.note,
+        unitPrice: item.unitPrice
+      });
+    }
+  });
+
+  if (!shouldRender) return null;
 
   return (
     <>
@@ -266,28 +607,33 @@ export default function PaymentDrawer({ isOpen, onClose, checkTotal, tableNumber
 
       <div 
         ref={drawerRef}
-        className={`fixed inset-y-0 right-0 z-50 w-full md:w-[900px] text-black bg-white dark:bg-gray-800 shadow-2xl flex flex-row transition-transform duration-500 ease-in-out transform ${isOpen ? "translate-x-0" : "translate-x-full"}`}
+        className={`fixed inset-y-0 right-0 z-50 flex w-full max-w-[960px] bg-gray-100 dark:bg-gray-900 shadow-2xl transition-transform duration-500 ease-out select-none ${isOpen ? "translate-x-0" : "translate-x-full"}`}
       >
-        {/* Left Panel - Confirmation */}
-        <div className="flex-1 border-r border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50 flex-col min-h-0 hidden md:flex">
-          <div className="p-6 border-b border-gray-200 dark:border-gray-700">
-            <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Confirmation</h2>
-            <p className="text-gray-500 dark:text-gray-400 mt-1">Table {tableNumber}</p>
+        {/* Left Panel - Order Details */}
+        <div className="flex-1 flex flex-col border-r border-gray-200 dark:border-gray-700 min-w-0 bg-gray-50 dark:bg-gray-900">
+          <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shrink-0">
+            <h2 className="text-xl font-bold dark:text-white">Order Details</h2>
+            <p className="text-sm text-gray-500 dark:text-gray-400">Dine-in table {tableNumber}</p>
           </div>
-          
+
           <div className="flex-1 overflow-y-auto p-6 space-y-4">
-            {items && items.length > 0 ? items.map((item, i) => (
-              <div key={i} className="flex justify-between items-start gap-4 pb-4 border-b border-gray-100 dark:border-gray-700/50 last:border-0 last:pb-0">
-                <div className="flex-1 min-w-0">
+            {renderedItems.length > 0 ? renderedItems.map((item, idx) => (
+              <div key={idx} className="flex justify-between items-center p-4 bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800">
+                <div>
                   <div className="flex items-center gap-2">
-                    <span className="bg-gray-200 dark:bg-gray-700 text-xs px-2 py-0.5 rounded font-bold">{item.quantity}</span>
-                    <p className="font-semibold text-gray-900 dark:text-white truncate">{item.name}</p>
+                    <h4 className="font-bold text-gray-900 dark:text-white">{item.name}</h4>
+                    {item.isCompItem && (
+                      <span className="px-2 py-0.5 bg-orange-100 dark:bg-orange-950/40 text-orange-600 dark:text-orange-400 text-[10px] font-black rounded-lg uppercase tracking-wider">
+                        Comp
+                      </span>
+                    )}
                   </div>
-                  {item.note && <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 ml-7">{item.note}</p>}
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    Qty: {item.quantity} {item.isCompItem ? "" : `x ${item.unitPrice.toFixed(2)}`}
+                  </p>
+                  {item.note && <p className="text-xs text-brand-500 mt-1">Note: {item.note}</p>}
                 </div>
-                <div className="font-mono text-gray-900 dark:text-white font-semibold flex-shrink-0">
-                  {(item.quantity * item.unitPrice).toFixed(2)}
-                </div>
+                <span className="font-mono font-bold text-gray-900 dark:text-white">{item.price.toFixed(2)}</span>
               </div>
             )) : (
               <p className="text-gray-500 dark:text-gray-400 italic text-center py-10">No items available</p>
@@ -300,13 +646,25 @@ export default function PaymentDrawer({ isOpen, onClose, checkTotal, tableNumber
                 <span>Subtotal (Net Price Only)</span>
                 <span className="font-mono">{netPriceOnly.toFixed(2)}</span>
               </div>
-              {formChkStut !== 8 && tax !== undefined && (
+              {formChkStut !== 8 && formChkStut !== 11 && !isFoodTest && serviceCharge !== undefined && serviceCharge > 0 && (
+                <div className="flex justify-between text-gray-500 dark:text-gray-400">
+                  <span>Service Charge</span>
+                  <span className="font-mono">{serviceCharge.toFixed(2)}</span>
+                </div>
+              )}
+              {formChkStut !== 8 && formChkStut !== 11 && !isFoodTest && tax !== undefined && tax > 0 && (
                 <div className="flex justify-between text-gray-500 dark:text-gray-400">
                   <span>Tax</span>
                   <span className="font-mono">{tax.toFixed(2)}</span>
                 </div>
               )}
-              {formDiscountAmount > 0 && (
+              {formChkStut !== 11 && !isFoodTest && deliveryCharge !== undefined && deliveryCharge > 0 && (
+                <div className="flex justify-between text-gray-500 dark:text-gray-400">
+                  <span>Delivery Charge</span>
+                  <span className="font-mono">{deliveryCharge.toFixed(2)}</span>
+                </div>
+              )}
+              {formChkStut !== 11 && !isFoodTest && formDiscountAmount > 0 && (
                 <div className="flex justify-between text-red-500 dark:text-red-400">
                   <span>Discount</span>
                   <span className="font-mono">-{formDiscountAmount.toFixed(2)}</span>
@@ -320,265 +678,328 @@ export default function PaymentDrawer({ isOpen, onClose, checkTotal, tableNumber
           </div>
         </div>
 
-        {/* Right Panel - Payment */}
-        <div className="w-full md:w-[440px] flex flex-col bg-white dark:bg-gray-800">
-          <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700 shrink-0">
+        {/* Right Panel - Payment (Touch-First Compact Numerical Keypad layout) */}
+        <div className="w-full md:w-[460px] flex flex-col bg-white dark:bg-gray-800">
+          <div className="flex items-center justify-between px-6 py-3 border-b border-gray-200 dark:border-gray-700 shrink-0 bg-white dark:bg-gray-800">
             <div>
               <h2 className="text-xl font-bold dark:text-white">Payment</h2>
-              <p className="text-xs text-gray-500 dark:text-gray-400">{METHODS.length} payment methods available</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Select payment method below</p>
             </div>
-            <button onClick={onClose} className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400">
-              <X size={20} />
-            </button>
+            <div className="flex items-center gap-2">
+              <button 
+                type="button" 
+                onClick={handleCompClick}
+                disabled={supervisorLoading}
+                className="px-3.5 py-1.5 border-2 border-orange-500 text-orange-500 hover:bg-orange-50 dark:hover:bg-orange-950/20 rounded-xl text-sm font-bold transition-all disabled:opacity-50"
+              >
+                Comp Check
+              </button>
+              <button onClick={onClose} className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400">
+                <X size={20} />
+              </button>
+            </div>
           </div>
 
-          <form onSubmit={handleSubmit(onSubmit)} className="flex-1 flex flex-col min-h-0">
-            <div className="flex-1 overflow-y-auto p-6">
+          <form onSubmit={handleSubmit(onSubmit)} className="flex-1 flex flex-col min-h-0 bg-gray-50/50 dark:bg-gray-900/10">
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
               
-              {/* Selector */}
-              <div className="grid grid-cols-4 gap-2 mb-6">
+              {/* Method Selector */}
+              <div className="grid grid-cols-4 gap-2">
                 {METHODS.map(method => {
                   const Icon = method.icon;
                   return (
                     <button
                       key={method.id}
                       type="button"
-                      onClick={() => setValue("paymentMethod", method.id as any, { shouldValidate: true })}
-                      className={`flex flex-col items-center justify-center py-2 px-1 rounded-xl border transition-all ${paymentMethod === method.id ? "bg-brand-500 text-white border-brand-500 shadow-md" : "bg-gray-50 dark:bg-gray-900 text-gray-500 dark:text-gray-400 border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800"}`}
+                      onClick={() => handleMethodChange(method.id)}
+                      className={`flex flex-col items-center justify-center py-1.5 px-1 rounded-xl border transition-all ${paymentMethod === method.id ? "bg-brand-500 text-white border-brand-500 shadow-md" : "bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400 border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700"}`}
                     >
-                      <Icon size={20} strokeWidth={2.5} className="mb-1" />
-                      <span className="text-xs font-semibold">{method.label}</span>
+                      <Icon size={18} strokeWidth={2.5} className="mb-0.5" />
+                      <span className="text-xs font-bold">{method.label}</span>
                     </button>
                   );
                 })}
               </div>
 
-              <div className="space-y-6">
+              {/* Dynamic Inputs Cards - Touch-First Clickable Rows */}
+              <div className="space-y-2">
                 
-                {/* MIXED OR VISA */}
-                {(paymentMethod === "visa" || paymentMethod === "mixed") && (
-                  <div className="p-4 rounded-xl border-l-[3px] border-l-brand-500 bg-white dark:bg-gray-800 border-y border-r border-gray-200 dark:border-gray-700 shadow-sm">
-                    <div className="flex flex-col gap-3">
-                      <div className="flex items-center gap-3">
-                        <span className="w-20 text-sm font-bold dark:text-gray-200">Visa</span>
-                        <input 
-                          type="text" 
-                          inputMode="none"
-                          readOnly
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setActiveNumpad("visaAmount");
-                            setAnchorEl(e.currentTarget);
-                          }}
-                          onFocus={(e) => {
-                            e.target.blur();
-                            if (paymentMethod === "mixed") {
-                              const fullVisa = parseFloat(Math.max(0, displayedTotal - clAmount).toFixed(2));
-                              setValue("visaAmount", fullVisa, { shouldValidate: true });
-                            }
-                          }}
-                          value={visaAmount.toFixed(2)}
-                          {...register("visaAmount", { valueAsNumber: true })}
-                          className={`w-28 text-right font-mono p-2 border rounded-lg focus:ring-2 focus:ring-brand-500 outline-none cursor-pointer ${activeNumpad === "visaAmount" ? "border-brand-500 ring-2 ring-brand-500/20 dark:border-brand-500" : "dark:bg-gray-700 dark:border-gray-600 dark:text-white"}`} 
-                        />
-                        <select 
-                          {...register("cardType")}
-                          className="flex-1 p-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-2 focus:ring-brand-500 outline-none"
-                        >
-                          {CARD_TYPES.map(c => <option key={c} value={c}>{c}</option>)}
-                        </select>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <div className="w-20 text-sm font-bold text-gray-500 dark:text-gray-400">Card No</div>
-                        <div className="flex-1">
-                          <input 
-                            type="text"
-                            placeholder="**** **** **** ****"
-                            maxLength={20}
-                            {...register("visaNo")}
-                            className={`w-full p-2 border rounded-lg dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-brand-500 outline-none ${errors.visaNo ? 'border-red-500 focus:ring-red-500 dark:border-red-500' : 'dark:border-gray-600'}`} 
-                          />
-                          {errors.visaNo && <p className="text-red-500 text-xs mt-1">{errors.visaNo.message}</p>}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* MIXED DIVIDER */}
-                {paymentMethod === "mixed" && (
-                  <div className="flex items-center gap-4">
-                    <div className="flex-1 h-px bg-gray-200 dark:bg-gray-700"></div>
-                    <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">AND</span>
-                    <div className="flex-1 h-px bg-gray-200 dark:bg-gray-700"></div>
-                  </div>
-                )}
-
-                {/* MIXED OR CASH */}
+                {/* Cash Paid input card */}
                 {(paymentMethod === "cash" || paymentMethod === "mixed") && (
-                  <div className="p-4 rounded-xl border-l-[3px] border-l-brand-500 bg-white dark:bg-gray-800 border-y border-r border-gray-200 dark:border-gray-700 shadow-sm">
-                    <div className="flex flex-col gap-3">
-                      <div className="flex items-center gap-3">
-                        <span className="w-20 text-sm font-bold dark:text-gray-200">Cash</span>
-                        <input 
-                          type="text"
-                          inputMode="none"
-                          readOnly
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setActiveNumpad("cash");
-                            setAnchorEl(e.currentTarget);
-                          }}
-                          onFocus={(e) => e.target.blur()}
-                          value={cash.toFixed(2)}
-                          {...register("cash", { valueAsNumber: true })}
-                          className={`w-28 text-right font-mono p-2 border rounded-lg focus:ring-2 focus:ring-brand-500 outline-none cursor-pointer ${activeNumpad === "cash" ? "border-brand-500 ring-2 ring-brand-500/20 dark:border-brand-500" : "dark:bg-gray-700 dark:border-gray-600 dark:text-white"}`} 
-                        />
-                        <select 
-                          {...register("currency")}
-                          className="flex-1 p-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-2 focus:ring-brand-500 outline-none"
-                        >
-                          {CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
-                        </select>
-                      </div>
+                  <div 
+                    onClick={() => handleInputActivate("cash")}
+                    className={`flex items-center justify-between py-2.5 px-3.5 rounded-2xl border-2 transition-all cursor-pointer ${activeInput === "cash" ? "border-brand-500 bg-brand-50/10 shadow-sm animate-pulse-subtle" : "border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700/50"}`}
+                  >
+                    <div>
+                      <span className="text-xs font-bold text-gray-500 dark:text-gray-400 block">Cash Paid</span>
+                      {paymentMethod === "cash" && changeDue > 0 && (
+                        <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">Change: {changeDue.toFixed(2)} EGP</span>
+                      )}
+                    </div>
+                    <span className="font-mono text-lg font-bold dark:text-white">
+                      {cash.toFixed(2)} <span className="text-xs text-gray-400 font-normal">EGP</span>
+                    </span>
+                  </div>
+                )}
 
-                      <div className="flex items-center gap-3">
-                        <span className="w-20 text-sm font-bold text-gray-500 dark:text-gray-400">Change</span>
-                        <div className={`flex-1 p-2 text-right font-mono font-bold rounded-lg ${changeDue > 0 ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400" : "bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400"}`}>
-                          {changeDue.toFixed(2)}
-                        </div>
+                {/* Visa Paid input card */}
+                {(paymentMethod === "visa" || paymentMethod === "mixed") && (
+                  <div 
+                    onClick={() => handleInputActivate("visaAmount")}
+                    className={`flex items-center justify-between py-2.5 px-3.5 rounded-2xl border-2 transition-all cursor-pointer ${activeInput === "visaAmount" ? "border-brand-500 bg-brand-50/10 shadow-sm animate-pulse-subtle" : "border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700/50"}`}
+                  >
+                    <div>
+                      <span className="text-xs font-bold text-gray-500 dark:text-gray-400 block">Visa Amount</span>
+                    </div>
+                    <span className="font-mono text-lg font-bold dark:text-white">
+                      {visaAmount.toFixed(2)} <span className="text-xs text-gray-400 font-normal">EGP</span>
+                    </span>
+                  </div>
+                )}
+
+                {/* Customer Ledger input card */}
+                {paymentMethod === "cl" && (
+                  <div className="py-2.5 px-3.5 rounded-2xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800 space-y-2">
+                    {!hasClPermission ? (
+                      <div className="flex flex-col items-center justify-center py-4 px-2 text-center bg-red-50/10 dark:bg-red-950/10 rounded-xl border border-red-500/20">
+                        <ShieldCheck className="h-10 w-10 text-red-500 mb-2 animate-bounce" />
+                        <h4 className="font-bold text-sm text-gray-800 dark:text-white">Permission Required</h4>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 max-w-[280px]">Closing checks as Customer Ledger (CL) requires supervisor authorization.</p>
                         <button
                           type="button"
-                          disabled={changeDue === 0}
                           onClick={() => {
+                            setSupervisorError(null);
+                            setClUnlockActive(true);
+                            setSupervisorOpen(true);
+                          }}
+                          className="mt-3.5 px-4 py-2 bg-brand-500 text-white font-bold rounded-xl text-xs hover:bg-brand-600 transition shadow active:scale-95"
+                        >
+                          Unlock CL Payment
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-gray-500 dark:text-gray-400">Customer (CL)</span>
+                          <div className="flex gap-1.5">
+                            <button 
+                              type="button" 
+                              onClick={() => setIsCustModalOpen(true)}
+                              disabled={isFoodTest}
+                              className="px-2.5 py-0.5 bg-brand-50 text-brand-600 hover:bg-brand-100 dark:bg-brand-950/20 dark:text-brand-400 rounded-lg text-xs font-bold transition-all border border-brand-500/20 disabled:opacity-50"
+                            >
+                              Find Customer
+                            </button>
+                            {customerName !== "Cash Customer" && (
+                              <button 
+                                type="button" 
+                                onClick={handleClearCustomer}
+                                disabled={isFoodTest}
+                                className="px-2.5 py-0.5 bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-950/20 dark:text-red-400 rounded-lg text-xs font-bold transition-all border border-red-500/20 disabled:opacity-50"
+                              >
+                                Reset
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex justify-between items-center bg-gray-50 dark:bg-gray-900/60 p-2 rounded-xl">
+                          <span className="font-bold text-gray-800 dark:text-gray-200 text-xs">{customerName}</span>
+                          <span className="text-xs px-1.5 py-0.5 bg-gray-200 dark:bg-gray-800 rounded font-bold text-gray-500 dark:text-gray-300">
+                            {formChkStut === 11 ? "Food Test" : formChkStut === 8 ? "Officer" : formDiscountPrsn > 0 ? `${formDiscountPrsn}% Disc` : "No Disc"}
+                          </span>
+                        </div>
+                        <div 
+                          className={`flex items-center justify-between p-2 rounded-xl border-2 border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800`}
+                        >
+                          <span className="text-xs font-bold">Credit Amount</span>
+                          <span className="font-mono text-lg font-bold">
+                            {clAmount.toFixed(2)} <span className="text-xs text-gray-400 font-normal">EGP</span>
+                          </span>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+
+                {/* Mixed CL row (Mixed payment only) */}
+                {paymentMethod === "mixed" && (
+                  <div className="p-2.5 rounded-2xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800 space-y-1.5">
+                    {!hasClPermission ? (
+                      <div className="flex items-center justify-between py-1 bg-red-50/10 dark:bg-red-950/10 rounded-xl border border-red-500/20 px-2.5">
+                        <span className="text-xs font-bold text-gray-500 dark:text-gray-400">Ledger (CL): Permission Required</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSupervisorError(null);
+                            setClUnlockActive(true);
+                            setSupervisorOpen(true);
+                          }}
+                          className="px-2.5 py-1 bg-brand-500 text-white font-bold rounded-lg text-xs hover:bg-brand-600 transition shadow active:scale-95"
+                        >
+                          Unlock
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-gray-500 dark:text-gray-400">Ledger (CL) Credit</span>
+                          <div className="flex gap-1">
+                            <button type="button" onClick={() => setIsCustModalOpen(true)} className="px-2 py-0.5 bg-brand-50 dark:bg-brand-950/20 border border-brand-200 dark:border-brand-900 text-brand-600 dark:text-brand-400 rounded text-xs font-bold">Search</button>
+                            {customerName !== "Cash Customer" && (
+                              <button type="button" onClick={handleClearCustomer} className="px-2 py-0.5 bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900 text-red-600 dark:text-red-400 rounded text-xs font-bold">Reset</button>
+                            )}
+                          </div>
+                        </div>
+                        {customerName !== "Cash Customer" && (
+                          <div className="flex items-center justify-between bg-gray-50 dark:bg-gray-900/60 p-1.5 rounded-lg text-xs font-bold mb-1">
+                            <span className="text-gray-850 dark:text-gray-200">{customerName}</span>
+                          </div>
+                        )}
+                        <div 
+                          onClick={() => handleInputActivate("clAmount")}
+                          className={`flex items-center justify-between p-2 rounded-xl border-2 transition-all cursor-pointer ${customerName === "Cash Customer" ? "bg-gray-50 dark:bg-gray-900/40 text-gray-400 dark:text-gray-500 cursor-not-allowed border-gray-200 dark:border-gray-800" : activeInput === "clAmount" ? "border-brand-500 bg-brand-50/10 shadow-sm" : "border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-750"}`}
+                        >
+                          <span className="text-xs font-bold text-gray-700 dark:text-gray-300">CL Credit</span>
+                          <span className="font-mono font-bold dark:text-white">{clAmount.toFixed(2)}</span>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+
+                {/* Tips input card (Cash or Visa tips conditionally based on active paymentMethod) */}
+                {paymentMethod !== "cl" && (
+                  <div 
+                    onClick={() => handleInputActivate("tips")}
+                    className={`flex items-center justify-between py-2.5 px-3.5 rounded-2xl border-2 transition-all cursor-pointer ${activeInput === "tips" ? "border-brand-500 bg-brand-50/10 shadow-sm animate-pulse-subtle" : "border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700/50"}`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-gray-500 dark:text-gray-400">
+                        {paymentMethod === "visa" ? "Visa Tip" : "Cash Tip"}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-lg font-bold dark:text-white">{tips.toFixed(2)}</span>
+                      {paymentMethod === "cash" && changeDue > 0 && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
                             setValue("tips", tips + changeDue, { shouldValidate: true });
                             setValue("cash", cash - changeDue, { shouldValidate: true });
+                            setKeypadString((cash - changeDue).toString());
                           }}
-                          className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors ${changeDue > 0 ? "bg-brand-100 text-brand-700 hover:bg-brand-200 dark:bg-brand-900/40 dark:text-brand-300 dark:hover:bg-brand-900/60" : "bg-gray-100 text-gray-400 dark:bg-gray-800 dark:text-gray-600 cursor-not-allowed"}`}
+                          className="px-2 py-0.5 text-xs bg-brand-500 text-white font-bold rounded-lg hover:bg-brand-600 transition shadow"
                         >
                           As Tip
                         </button>
-                      </div>
+                      )}
                     </div>
                   </div>
                 )}
-
-                {/* CL ONLY */}
-                {paymentMethod === "cl" && (
-                  <div className="p-4 rounded-xl border-l-[3px] border-l-brand-500 bg-white dark:bg-gray-800 border-y border-r border-gray-200 dark:border-gray-700 shadow-sm">
-                    <div className="flex flex-col gap-3">
-                      
-                      <div className="flex items-center gap-3">
-                        <span className="w-20 text-sm font-bold dark:text-gray-200">Customer</span>
-                        <div className="flex-1 flex gap-2">
-                          <input 
-                            type="text" 
-                            readOnly 
-                            {...register("customerName")}
-                            className="flex-1 p-2 bg-gray-100 border border-gray-200 rounded-lg text-gray-600 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-300 outline-none" 
-                          />
-                          {customerName !== "Cash Customer" && (
-                            <button 
-                              type="button" 
-                              onClick={handleClearCustomer}
-                              className="px-2.5 border border-red-500 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 rounded-lg text-xs font-bold transition-all"
-                            >
-                              Reset
-                            </button>
-                          )}
-                        </div>
-                        <button 
-                          type="button" 
-                          onClick={() => setIsCustModalOpen(true)} 
-                          className="p-2 border border-brand-500 text-brand-600 rounded-lg hover:bg-brand-50 dark:hover:bg-brand-900/30 dark:text-brand-400"
-                        >
-                          <Search size={20} />
-                        </button>
-                      </div>
-
-                      <div className="flex items-center gap-3">
-                        <span className={`w-20 text-sm font-bold ${customerName === "Cash Customer" ? "text-gray-400 dark:text-gray-600" : "dark:text-gray-200"}`}>CL Amt</span>
-                        <input 
-                          type="text" 
-                          inputMode="none"
-                          readOnly
-                          disabled={customerName === "Cash Customer"}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (customerName !== "Cash Customer") {
-                              setActiveNumpad("clAmount");
-                              setAnchorEl(e.currentTarget);
-                            }
-                          }}
-                          onFocus={(e) => e.target.blur()}
-                          value={clAmount.toFixed(2)}
-                          {...register("clAmount", { valueAsNumber: true })}
-                          className={`w-28 text-right font-mono p-2 border rounded-lg focus:ring-2 focus:ring-brand-500 outline-none cursor-pointer ${customerName === "Cash Customer" ? "bg-gray-100 border-gray-200 text-gray-400 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-500 cursor-not-allowed" : activeNumpad === "clAmount" ? "border-brand-500 ring-2 ring-brand-500/20 dark:border-brand-500" : "dark:bg-gray-700 dark:border-gray-600 dark:text-white"}`} 
-                        />
-                        <input 
-                          type="text" 
-                          placeholder="Note / Ref"
-                          disabled={customerName === "Cash Customer"}
-                          {...register("clNote")}
-                          className={`flex-1 p-2 border rounded-lg focus:ring-2 focus:ring-brand-500 outline-none ${customerName === "Cash Customer" ? "bg-gray-100 border-gray-200 text-gray-400 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-500 cursor-not-allowed" : "dark:bg-gray-700 dark:border-gray-600 dark:text-white"}`} 
-                        />
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* universally available Tips Section */}
-                <div className="p-4 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm">
-                  <div className="flex items-center gap-3">
-                    <span className="w-20 text-sm font-bold dark:text-gray-200">Tips</span>
-                    <input 
-                      type="text" 
-                      inputMode="none"
-                      readOnly
-                      disabled={isComp}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (!isComp) {
-                          setActiveNumpad("tips");
-                          setAnchorEl(e.currentTarget);
-                        }
-                      }}
-                      onFocus={(e) => e.target.blur()}
-                      value={tips.toFixed(2)}
-                      {...register("tips", { valueAsNumber: true })}
-                      className={`w-28 text-right font-mono p-2 border rounded-lg focus:ring-2 focus:ring-brand-500 outline-none cursor-pointer ${isComp ? 'bg-gray-100 text-gray-400 dark:bg-gray-800 border-gray-200 dark:border-gray-700 cursor-not-allowed' : activeNumpad === "tips" ? "border-brand-500 ring-2 ring-brand-500/20 dark:border-brand-500" : 'bg-white dark:bg-gray-700 dark:border-gray-600 dark:text-white'}`} 
-                    />
-                    <div className="flex-1 flex justify-end">
-                      <button 
-                        type="button" 
-                        onClick={toggleComp}
-                        className={`px-4 py-2 text-sm rounded-lg font-bold transition-colors ${isComp ? "bg-orange-500 text-white" : "bg-gray-200 text-gray-700 hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"}`}
-                      >
-                        {isComp ? "Is Comp" : "Comp"}
-                      </button>
-                    </div>
-                  </div>
-                </div>
 
               </div>
+
+              {/* Integrated numerical keypad (Touch-friendly but Compact size) */}
+              {paymentMethod !== "cl" ? (
+                <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl p-3.5 shadow-sm flex flex-col gap-2.5 select-none">
+                  
+                   {/* Quick Cash row (Cash method or Mixed cash input active) */}
+                  {activeInput === "cash" && (
+                    <div className="grid grid-cols-5 gap-1.5">
+                      <button type="button" onClick={handleExactCash} className="h-9 text-xs font-bold bg-brand-50 dark:bg-brand-950/40 text-brand-700 dark:text-brand-400 hover:bg-brand-100 dark:hover:bg-brand-900/60 rounded-xl transition border border-brand-200 dark:border-brand-900">Exact</button>
+                      <button type="button" onClick={() => handleAddCash(10)} className="h-9 text-xs font-mono font-bold bg-gray-50 hover:bg-gray-100 dark:bg-gray-700 dark:hover:bg-gray-600 dark:text-white rounded-xl transition">+10</button>
+                      <button type="button" onClick={() => handleAddCash(50)} className="h-9 text-xs font-mono font-bold bg-gray-50 hover:bg-gray-100 dark:bg-gray-700 dark:hover:bg-gray-600 dark:text-white rounded-xl transition">+50</button>
+                      <button type="button" onClick={() => handleAddCash(100)} className="h-9 text-xs font-mono font-bold bg-gray-50 hover:bg-gray-100 dark:bg-gray-700 dark:hover:bg-gray-600 dark:text-white rounded-xl transition">+100</button>
+                      <button type="button" onClick={() => handleAddCash(200)} className="h-9 text-xs font-mono font-bold bg-gray-50 hover:bg-gray-100 dark:bg-gray-700 dark:hover:bg-gray-600 dark:text-white rounded-xl transition">+200</button>
+                    </div>
+                  )}
+
+                  {/* Quick Visa row (Visa method or Mixed visa input active) */}
+                  {activeInput === "visaAmount" && (
+                    <div className="grid grid-cols-1">
+                      <button 
+                        type="button" 
+                        onClick={() => {
+                          setValue("visaAmount", displayedTotal, { shouldValidate: true });
+                          setKeypadString(displayedTotal.toFixed(2));
+                          setIsFirstType(true);
+                        }} 
+                        className="h-9 text-xs font-bold bg-brand-50 dark:bg-brand-950/40 text-brand-700 dark:text-brand-400 hover:bg-brand-100 dark:hover:bg-brand-900/60 rounded-xl transition border border-brand-200 dark:border-brand-900"
+                      >
+                        Exact Amount ({displayedTotal.toFixed(2)} EGP)
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Keypad string display */}
+                  <div className="bg-gray-50 dark:bg-gray-900 rounded-xl py-1.5 px-3 text-right flex items-center justify-between border border-gray-100 dark:border-gray-800">
+                    <span className="text-xs text-gray-400 font-bold uppercase tracking-wider">
+                      Typing:
+                    </span>
+                    <span className="text-lg font-bold font-mono text-gray-800 dark:text-white">
+                      {keypadString || "0"}
+                    </span>
+                  </div>
+
+                  {/* Number Grid */}
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {["1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0", "back"].map(key => (
+                      <button
+                        key={key}
+                        type="button"
+                        onClick={() => handleKeypadPress(key)}
+                        className={`h-11 rounded-xl flex items-center justify-center text-lg font-bold transition-all active:scale-95 ${key === "back" ? "bg-amber-500 hover:bg-amber-600 text-white shadow-md shadow-amber-500/10" : "bg-gray-50 hover:bg-gray-100 dark:bg-gray-700/80 dark:hover:bg-gray-700 dark:text-white border border-gray-100 dark:border-gray-700"}`}
+                      >
+                        {key === "back" ? <Delete size={18} /> : key}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                hasClPermission && (
+                  <div className="pt-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const newFoodTestState = !isFoodTest;
+                        setIsFoodTest(newFoodTestState);
+                        if (newFoodTestState) {
+                          setValue("customerName", "Food Test", { shouldValidate: true });
+                          setValue("customerId", undefined, { shouldValidate: true });
+                          setValue("chkStut", 11, { shouldValidate: true });
+                          setValue("tax", 0, { shouldValidate: true });
+                          setValue("service", 0, { shouldValidate: true });
+                          setValue("discountAmount", 0, { shouldValidate: true });
+                          setValue("discountPrsn", 0, { shouldValidate: true });
+                          setValue("clAmount", parseFloat(netPriceOnly.toFixed(2)), { shouldValidate: true });
+                          setKeypadString(netPriceOnly.toFixed(2));
+                        } else {
+                          handleClearCustomer();
+                        }
+                      }}
+                      className={`w-full h-16 rounded-2xl flex items-center justify-center gap-3 font-bold transition-all duration-75 active:scale-95 text-base border-2 shadow-sm ${
+                        isFoodTest
+                          ? "bg-cyan-500 text-white border-cyan-600 dark:bg-cyan-600 dark:border-cyan-700 shadow-cyan-500/10"
+                          : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50"
+                      }`}
+                    >
+                      <span className={`h-3 w-3 rounded-full ${isFoodTest ? "bg-white animate-pulse" : "bg-gray-300 dark:bg-gray-600"}`} />
+                      Food Test Check
+                    </button>
+                  </div>
+                )
+              )}
+
             </div>
 
             {/* Totals Summary Footer */}
-            <div className="shrink-0 p-6 bg-gray-50 dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700">
-              <div className="space-y-1.5 mb-5">
+            <div className="shrink-0 p-4 bg-gray-50 dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700">
+              <div className="space-y-1.5 mb-2.5 md:hidden">
                 <div className="flex justify-between text-gray-500 dark:text-gray-400 text-sm">
                   <span>Check Total</span>
-                  <span className="font-mono font-bold text-gray-900 dark:text-white">{displayedTotal.toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between text-gray-500 dark:text-gray-400 text-sm">
-                  <span>Amount Paid</span>
-                  <span className="font-mono">{totalPaid.toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between pt-2 mt-2 border-t border-gray-200 dark:border-gray-700">
-                  <span className="font-bold text-gray-900 dark:text-white">Remaining</span>
-                  <span className={`font-mono font-bold text-lg ${remaining > 0 ? "text-red-500" : "text-emerald-500"}`}>
-                    {remaining > 0 ? remaining.toFixed(2) : "0.00"}
-                  </span>
+                  <span className="font-mono font-bold text-gray-900 dark:text-white">{displayedTotal.toFixed(2)} EGP</span>
                 </div>
               </div>
 
@@ -586,16 +1007,16 @@ export default function PaymentDrawer({ isOpen, onClose, checkTotal, tableNumber
                 <button 
                   type="button" 
                   onClick={onClose}
-                  className="flex-1 py-3 px-4 border border-gray-300 text-gray-700 font-bold rounded-xl hover:bg-gray-100 transition-colors dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
+                  className="flex-1 py-2.5 px-4 border border-gray-300 text-gray-700 font-bold rounded-xl hover:bg-gray-100 transition-colors dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700 text-sm"
                 >
-                  Cancel
+                  Close
                 </button>
-                <button 
-                  type="submit" 
-                  disabled={!isPaid || !isValid}
-                  className="flex-[2] py-3 px-4 bg-brand-500 text-white font-bold rounded-xl hover:bg-brand-600 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg transition-all"
+                <button
+                  type="submit"
+                  disabled={!isPaid}
+                  className={`flex-1 py-2.5 px-4 font-bold rounded-xl shadow-lg transition-all active:scale-95 text-sm ${isPaid ? "bg-emerald-500 hover:bg-emerald-600 text-white shadow-emerald-500/20" : "bg-gray-200 text-gray-400 cursor-not-allowed dark:bg-gray-800 dark:text-gray-600"}`}
                 >
-                  Confirm Payment
+                  CONFIRM & CLOSE
                 </button>
               </div>
             </div>
@@ -603,18 +1024,20 @@ export default function PaymentDrawer({ isOpen, onClose, checkTotal, tableNumber
         </div>
       </div>
 
-      {/* Customer Lookup Dialog */}
+      {/* Customer search modal */}
       {isCustModalOpen && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-          <div className="bg-white dark:bg-gray-900 rounded-3xl w-full max-w-lg shadow-2xl overflow-hidden border border-gray-100 dark:border-gray-800 flex flex-col max-h-[85vh] animate-in fade-in zoom-in-95 duration-200">
+          <div className="w-full max-w-lg bg-white dark:bg-gray-800 rounded-3xl shadow-2xl flex flex-col max-h-[85vh] overflow-hidden border border-gray-100 dark:border-gray-700">
             {/* Header */}
-            <div className="p-6 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between">
+            <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
               <div>
-                <h3 className="text-xl font-bold text-gray-900 dark:text-white">Select Customer</h3>
+                <h3 className="text-lg font-bold text-gray-900 dark:text-white">Customer Search</h3>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Search customer ledger mappings</p>
               </div>
               <button 
+                type="button" 
                 onClick={() => setIsCustModalOpen(false)}
-                className="p-1.5 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-400 hover:text-gray-600 transition-colors"
+                className="p-1 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
               >
                 <X size={20} />
               </button>
@@ -622,53 +1045,15 @@ export default function PaymentDrawer({ isOpen, onClose, checkTotal, tableNumber
 
             {/* Search Input */}
             <div className="p-4 pb-3 bg-gray-50/50 dark:bg-gray-900/50">
-              <div className="relative">
-                <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                <input 
+              <div className="relative flex-1">
+                <Search className="absolute left-4 top-3.5 h-5 w-5 text-gray-400" />
+                <input
                   type="text"
-                  placeholder="Search by code or name..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-brand-500 text-sm transition-all text-gray-900 dark:text-white"
+                  placeholder="Search by name or ID..."
+                  className="w-full pl-12 pr-4 py-3 bg-gray-50 dark:bg-gray-700/50 border border-gray-200 dark:border-gray-700 rounded-2xl focus:outline-none focus:ring-2 focus:ring-brand-500 dark:text-white"
                 />
-              </div>
-            </div>
-
-            {/* Kind Filter Radio Buttons */}
-            <div className="px-4 pb-3 bg-gray-50/50 dark:bg-gray-900/50 border-b border-gray-100 dark:border-gray-800">
-              <div className="flex items-center gap-2">
-                {[
-                  { label: "All", value: null },
-                  { label: "Owner CL", value: 1, icon: Award, color: "amber" },
-                  { label: "Staff CL", value: 2, icon: User, color: "emerald" },
-                  { label: "Officer", value: 3, icon: ShieldCheck, color: "brand" },
-                ].map((opt) => {
-                  const Icon = opt.icon;
-                  const isActive = kindFilter === opt.value;
-                  const colorMap: Record<string, string> = {
-                    amber: "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-400",
-                    emerald: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-400",
-                    brand: "bg-brand-500/10 text-brand-700 dark:text-brand-400 border-brand-400",
-                  };
-                  const activeClass = opt.color
-                    ? colorMap[opt.color]
-                    : "bg-gray-900 dark:bg-white text-white dark:text-gray-900 border-gray-900 dark:border-white";
-                  return (
-                    <button
-                      key={String(opt.value)}
-                      type="button"
-                      onClick={() => setKindFilter(opt.value as number | null)}
-                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all ${
-                        isActive
-                          ? activeClass
-                          : "bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-gray-400 dark:hover:border-gray-500"
-                      }`}
-                    >
-                      {Icon && <Icon size={12} />}
-                      {opt.label}
-                    </button>
-                  );
-                })}
               </div>
             </div>
 
@@ -682,7 +1067,7 @@ export default function PaymentDrawer({ isOpen, onClose, checkTotal, tableNumber
                   
                   return (
                     <button
-                      key={cust.code}
+                      key={cust.id}
                       type="button"
                       onClick={() => handleSelectCustomer(cust)}
                       className="w-full text-left p-4 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700/50 border border-gray-100 dark:border-gray-800 hover:border-brand-500/30 rounded-2xl transition-all shadow-sm flex items-center justify-between"
@@ -690,7 +1075,7 @@ export default function PaymentDrawer({ isOpen, onClose, checkTotal, tableNumber
                       <div className="space-y-1">
                         <div className="flex items-center gap-2">
                           <span className="text-xs font-semibold px-2 py-0.5 bg-gray-100 dark:bg-gray-700 rounded text-gray-500 dark:text-gray-400">
-                            #{cust.code}
+                            #{cust.id.slice(0, 6)}
                           </span>
                           <span className="font-bold text-gray-900 dark:text-white">
                             {cust.name}
@@ -714,9 +1099,8 @@ export default function PaymentDrawer({ isOpen, onClose, checkTotal, tableNumber
                           )}
                         </div>
                       </div>
-                      
                       {cust.discount > 0 && (
-                        <div className="text-right shrink-0">
+                        <div className="text-right">
                           <span className="text-xs font-bold text-red-500 bg-red-500/10 px-2 py-1 rounded-lg">
                             {cust.discount}% Disc
                           </span>
@@ -737,12 +1121,28 @@ export default function PaymentDrawer({ isOpen, onClose, checkTotal, tableNumber
         </div>
       )}
 
-      <NumpadPopup
-        isOpen={activeNumpad !== null}
-        value={getActiveValue()}
-        onChange={handleNumpadChange}
-        onClose={() => setActiveNumpad(null)}
-        anchorRef={getActiveRef()}
+      {/* Supervisor override verification for Comp Check / CL unlock */}
+      <SupervisorOverrideDialog
+        open={supervisorOpen}
+        onClose={() => {
+          setSupervisorOpen(false);
+          setClUnlockActive(false);
+        }}
+        onSubmit={handleCompConfirm}
+        isLoading={supervisorLoading}
+        error={supervisorError}
+        permissionRequired={clUnlockActive ? "check.officer:close" : "check:comp"}
+      />
+
+      {/* shadcn confirmation dialog for Comp Check */}
+      <ConfirmationDialog
+        isOpen={compConfirmOpen}
+        onClose={() => setCompConfirmOpen(false)}
+        onConfirm={handleCompDialogConfirm}
+        title="Apply Complimentary Check"
+        description="Are you sure you want to mark this check as Complimentary (Comp)? This action cannot be undone."
+        confirmText="Confirm Comp"
+        cancelText="Cancel"
       />
     </>
   );

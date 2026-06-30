@@ -5,7 +5,8 @@ import {
   AddCheckItemInputSchema, 
   VoidCheckItemInputSchema, 
   EntCheckItemInputSchema,
-  SplitCheckInputSchema
+  SplitCheckInputSchema,
+  CloseCheckInputSchema
 } from '@goldensoft/core-schemas';
 
 export class ChecksController {
@@ -65,7 +66,7 @@ export class ChecksController {
   async voidCheckItem(req: Request, res: Response): Promise<void> {
     try {
       const payload = VoidCheckItemInputSchema.parse(req.body);
-      const userId = req.user?.userId || 'system';
+      const userId = req.supervisorUser?.userId || req.user?.userId || 'system';
       const check = await checksService.voidCheckItem(req.params.id as string, req.params.itemId as string, payload, userId);
       res.json({ success: true, data: check });
     } catch (error: any) {
@@ -76,7 +77,7 @@ export class ChecksController {
   async entCheckItem(req: Request, res: Response): Promise<void> {
     try {
       const payload = EntCheckItemInputSchema.parse(req.body);
-      const userId = req.user?.userId || 'system';
+      const userId = req.supervisorUser?.userId || req.user?.userId || 'system';
       const check = await checksService.entCheckItem(req.params.id as string, req.params.itemId as string, payload, userId);
       res.json({ success: true, data: check });
     } catch (error: any) {
@@ -87,7 +88,7 @@ export class ChecksController {
   async voidCheck(req: Request, res: Response): Promise<void> {
     try {
       const reason = req.body.voidReason || 'Unknown';
-      const userId = req.user?.userId || 'system';
+      const userId = req.supervisorUser?.userId || req.user?.userId || 'system';
       const check = await checksService.voidCheck(req.params.id as string, reason, userId);
       res.json({ success: true, data: check });
     } catch (error: any) {
@@ -98,7 +99,7 @@ export class ChecksController {
   async updateCheckDiscount(req: Request, res: Response): Promise<void> {
     try {
       const data = req.body;
-      const userId = req.user?.userId || 'system';
+      const userId = req.supervisorUser?.userId || req.user?.userId || 'system';
       const check = await checksService.updateCheckDiscount(req.params.id as string, data, userId);
       res.json({ success: true, data: check });
     } catch (error: any) {
@@ -109,7 +110,7 @@ export class ChecksController {
   async splitCheck(req: Request, res: Response): Promise<void> {
     try {
       const payload = SplitCheckInputSchema.parse(req.body);
-      const userId = req.user?.userId || 'system';
+      const userId = req.supervisorUser?.userId || req.user?.userId || 'system';
       const result = await checksService.splitCheck(req.params.id as string, payload, userId);
 
       // Emit socket updates to refresh table floor plans in real-time
@@ -136,10 +137,10 @@ export class ChecksController {
   async printCheck(req: Request, res: Response): Promise<void> {
     try {
       const checkId = req.params.id as string;
-      const { supervisorPin, printerId } = req.body;
+      const { supervisorPin, supervisorId, printerId } = req.body;
       const userId = req.user?.userId || 'system';
 
-      const result = await checksService.printCheck(checkId, userId, { supervisorPin, printerId });
+      const result = await checksService.printCheck(checkId, userId, { supervisorPin, supervisorId, printerId });
 
       // Emit socket updates to refresh table status/floor plan in real-time
       const io = req.app.get('io');
@@ -167,7 +168,7 @@ export class ChecksController {
   async transferTable(req: Request, res: Response): Promise<void> {
     try {
       const checkId = req.params.id as string;
-      const { targetTableId, supervisorPin } = req.body;
+      const { targetTableId, supervisorPin, supervisorId } = req.body;
       const userId = req.user?.userId || 'system';
 
       if (!targetTableId) {
@@ -175,7 +176,7 @@ export class ChecksController {
         return;
       }
 
-      const result = await checksService.transferTable(checkId, targetTableId, userId, supervisorPin);
+      const result = await checksService.transferTable(checkId, targetTableId, userId, supervisorPin, supervisorId);
 
       // Emit socket updates
       const io = req.app.get('io');
@@ -201,7 +202,7 @@ export class ChecksController {
   async transferWaiter(req: Request, res: Response): Promise<void> {
     try {
       const checkId = req.params.id as string;
-      const { targetWaiterId, supervisorPin } = req.body;
+      const { targetWaiterId, supervisorPin, supervisorId } = req.body;
       const userId = req.user?.userId || 'system';
 
       if (!targetWaiterId) {
@@ -209,7 +210,7 @@ export class ChecksController {
         return;
       }
 
-      const updatedCheck = await checksService.transferWaiter(checkId, targetWaiterId, userId, supervisorPin);
+      const updatedCheck = await checksService.transferWaiter(checkId, targetWaiterId, userId, supervisorPin, supervisorId);
       
       const io = req.app.get('io');
       if (io && updatedCheck && updatedCheck.tableId) {
@@ -225,6 +226,120 @@ export class ChecksController {
       res.status(400).json({ success: false, error: error.message });
     }
   }
+
+  async updateGuestCount(req: Request, res: Response): Promise<void> {
+    try {
+      const checkId = req.params.id as string;
+      const { guestCount, supervisorPin, supervisorId } = req.body;
+      const userId = req.user?.userId || 'system';
+
+      if (guestCount === undefined || isNaN(Number(guestCount))) {
+        res.status(400).json({ success: false, error: 'guestCount is required and must be a number' });
+        return;
+      }
+
+      const updatedCheck = await checksService.updateGuestCount(
+        checkId,
+        Number(guestCount),
+        userId,
+        supervisorPin,
+        supervisorId
+      );
+
+      const io = req.app.get('io');
+      if (io && updatedCheck && updatedCheck.tableId) {
+        io.emit('table:status:changed', { 
+          tableId: updatedCheck.tableId, 
+          status: (updatedCheck.printCount || 0) > 0 ? 'printed' : 'occupied',
+          chkNo: updatedCheck.chkNo 
+        });
+      }
+
+      res.json({ success: true, data: updatedCheck });
+    } catch (error: any) {
+      res.status(400).json({ success: false, error: error.message });
+    }
+  }
+
+  async updateTableName(req: Request, res: Response): Promise<void> {
+    try {
+      const checkId = req.params.id as string;
+      const { tableName } = req.body;
+      const userId = req.user?.userId || 'system';
+
+      const updatedCheck = await checksService.updateTableName(
+        checkId,
+        tableName || '',
+        userId
+      );
+
+      const io = req.app.get('io');
+      if (io && updatedCheck && updatedCheck.tableId) {
+        io.emit('table:status:changed', { 
+          tableId: updatedCheck.tableId, 
+          status: (updatedCheck.printCount || 0) > 0 ? 'printed' : 'occupied',
+          chkNo: updatedCheck.chkNo 
+        });
+      }
+
+      res.json({ success: true, data: updatedCheck });
+    } catch (error: any) {
+      res.status(400).json({ success: false, error: error.message });
+    }
+  }
+
+  async updateCustomerInfo(req: Request, res: Response): Promise<void> {
+    try {
+      const checkId = req.params.id as string;
+      const { customerName, customerPhone } = req.body;
+      const userId = req.user?.userId || 'system';
+
+      const updatedCheck = await checksService.updateCustomerInfo(
+        checkId,
+        customerName || null,
+        customerPhone || null,
+        userId
+      );
+
+      const io = req.app.get('io');
+      if (io && updatedCheck) {
+        io.emit('table:status:changed', { 
+          tableId: updatedCheck.tableId || 'takeaway', 
+          status: 'updated',
+          chkNo: updatedCheck.chkNo 
+        });
+      }
+
+      res.json({ success: true, data: updatedCheck });
+    } catch (error: any) {
+      res.status(400).json({ success: false, error: error.message });
+    }
+  }
+
+  async closeCheck(req: Request, res: Response): Promise<void> {
+    try {
+      const checkId = req.params.id as string;
+      const parsed = CloseCheckInputSchema.parse(req.body);
+      const userId = req.user?.userId || 'system';
+
+      const updatedCheck = await checksService.closeCheck(checkId, parsed, userId);
+
+      // Emit socket updates to refresh table status/floor plan in real-time
+      const io = req.app.get('io');
+      if (io && updatedCheck.tableId) {
+        io.emit('table:status:changed', { 
+          tableId: updatedCheck.tableId, 
+          status: 'free' 
+        });
+      }
+
+      res.json({ success: true, data: updatedCheck });
+    } catch (error: any) {
+      console.error('Close check error:', error);
+      res.status(400).json({ success: false, error: error.message });
+    }
+  }
 }
 
 export const checksController = new ChecksController();
+

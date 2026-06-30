@@ -24,7 +24,7 @@ interface CartItemsProps {
   onRequestVoid: (item: CheckItem) => void;
   onChangeQty?: (itemId: string, delta: number) => void;
   onVoidItem?: (itemId: string, voidQty: number, reasonId: number) => void;
-  onCompItem?: (itemId: string) => void;
+  onCompItem?: (itemId: string, qty: number) => void;
   onUpdateNotes?: (itemId: string, notes: string) => void;
   canVoidAfterSend: boolean;
   canVoidAfterPrint: boolean;
@@ -106,6 +106,7 @@ export function CartItems({
   };
 
   const visibleItems = localCart.filter((d) => (Number(d.qty) || 0) > 0);
+  const totalBillableQty = localCart.reduce((sum, item) => sum + ((Number(item.qty) || 0) - (item.entQty || 0)), 0);
 
   if (visibleItems.length === 0) {
     return (
@@ -126,6 +127,7 @@ export function CartItems({
           (isAfterPrint && canVoidAfterPrint);
 
         const canDiscountThisItem = isSent && canGiftItem;
+        const isLastBillableItem = (d.qty - (d.entQty || 0) > 0) && (totalBillableQty <= 1);
         
         const itemDef = menuItems.find(m => m.id === d.menuItemId);
         const displayName = d.itemName || itemDef?.name || "Unknown Item";
@@ -154,6 +156,14 @@ export function CartItems({
               <p className="text-xs xl:text-sm font-medium truncate dark:text-white">
                 {displayName}
               </p>
+              
+              {d.entQty > 0 && (
+                <div className="mt-0.5">
+                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-extrabold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-400 border border-emerald-250 dark:border-emerald-900">
+                    {d.qty === d.entQty ? "COMP / ضيافة" : `COMP: ${d.entQty} / ضيافة`}
+                  </span>
+                </div>
+              )}
               
               <div className="flex items-center justify-between mt-1 text-[10px] xl:text-xs text-gray-500 gap-1 xl:gap-2">
                 <div className="flex items-center gap-1 xl:gap-2">
@@ -201,12 +211,21 @@ export function CartItems({
                   </div>
 
                   <div className="flex flex-col leading-tight">
-                    <span>{d.itemPrice}</span>
+                    {d.entQty > 0 ? (
+                      <div className="flex items-center gap-1.5">
+                        <span className="line-through text-gray-400">{d.itemPrice}</span>
+                        <span className="text-emerald-600 dark:text-emerald-400 font-bold">
+                          {d.qty === d.entQty ? 0 : `${d.itemPrice} (${d.qty - d.entQty} paid)`}
+                        </span>
+                      </div>
+                    ) : (
+                      <span>{d.itemPrice}</span>
+                    )}
                   </div>
                 </div>
 
                 <span className="font-semibold dark:text-white">
-                  {((Number(d.qty) || 0) * ((Number(d.itemPrice) || 0) + (d.modifiers?.reduce((sum, m) => sum + (m.price * m.qty), 0) || 0)))}
+                  {((Math.max(0, Number(d.qty) - (d.entQty || 0))) * ((Number(d.itemPrice) || 0) + (d.modifiers?.reduce((sum, m) => sum + (m.price * m.qty), 0) || 0)))}
                 </span>
               </div>
               {d.notes && (
@@ -236,8 +255,8 @@ export function CartItems({
               </button>
               <button
                 onClick={() => setCompItem(d)}
-                disabled={!canDiscountThisItem}
-                title={!canDiscountThisItem ? tooltipNoAccess : undefined}
+                disabled={!canDiscountThisItem || isLastBillableItem}
+                title={isLastBillableItem ? "Cannot comp the last remaining item in the check" : !canDiscountThisItem ? tooltipNoAccess : undefined}
                 className="self-center text-gray-400 hover:text-amber-500 disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <Gift size={20} />
@@ -295,26 +314,43 @@ export function CartItems({
         open={!!compItem}
         onOpenChange={(open) => !open && setCompItem(null)}
       >
-        <DialogContent>
+        <DialogContent className="sm:max-w-2xl max-w-[95vw] bg-white dark:bg-slate-900 rounded-3xl p-6 shadow-2xl border border-slate-100 dark:border-slate-800 font-sans">
           <DialogHeader>
-            <DialogTitle>Complimentary item</DialogTitle>
-            <DialogDescription>
+            <DialogTitle className="text-slate-900 dark:text-white font-black text-xl">Complimentary item</DialogTitle>
+            <DialogDescription className="text-slate-650 dark:text-slate-350 text-base mt-2">
               {compItem ? (
                 <>Apply 100% discount to &quot;{compItem.itemName || menuItems.find(m => m.id === compItem.menuItemId)?.name || "Unknown Item"}&quot;?</>
               ) : null}
             </DialogDescription>
           </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setCompItem(null)}>
+          <DialogFooter className="flex flex-col sm:flex-row gap-3 w-full sm:justify-end mt-6 pt-4 border-t border-slate-100 dark:border-slate-800 bg-transparent dark:bg-transparent !p-0 !m-0">
+            <Button
+              variant="outline"
+              className="h-16 text-lg font-semibold active:scale-95 active:bg-slate-200 dark:bg-slate-800 dark:text-slate-250 dark:border-slate-700 dark:hover:bg-slate-700 transition-all duration-75 select-none w-full sm:w-auto"
+              onClick={() => setCompItem(null)}
+            >
               Cancel
             </Button>
+            {compItem && compItem.entQty > 0 && (
+              <Button
+                variant="destructive"
+                className="h-16 text-lg font-semibold active:scale-95 transition-all duration-75 select-none w-full sm:w-auto dark:bg-red-950/20 dark:text-red-400 dark:border-red-900 dark:hover:bg-red-900/20"
+                onClick={() => {
+                  onCompItem?.(compItem.id || compItem.menuItemId, -1);
+                  setCompItem(null);
+                }}
+              >
+                Cancel Comp (-1)
+              </Button>
+            )}
             <Button
+              className="h-16 text-lg font-semibold active:scale-95 transition-all duration-75 select-none w-full sm:w-auto bg-brand-500 hover:bg-brand-600 dark:bg-brand-600 dark:hover:bg-brand-500 text-white"
               onClick={() => {
-                if (compItem) onCompItem?.(compItem.id || compItem.menuItemId);
+                if (compItem) onCompItem?.(compItem.id || compItem.menuItemId, 1);
                 setCompItem(null);
               }}
             >
-              Confirm
+              {compItem && compItem.entQty > 0 ? "Confirm Comp (+1)" : "Confirm"}
             </Button>
           </DialogFooter>
         </DialogContent>

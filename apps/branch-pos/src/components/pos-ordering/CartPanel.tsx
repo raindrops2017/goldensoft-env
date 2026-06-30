@@ -28,7 +28,7 @@ interface Props {
   ) => void;
   onRemoveItem: (itemId: string) => void;
   onChangeQty?: (itemId: string, delta: number) => void;
-  onCompItem?: (itemId: string) => void;
+  onCompItem?: (itemId: string, qty: number) => void;
   onUpdateNotes?: (itemId: string, notes: string) => void;
   onClose?: () => void;
   checkPrinted?: boolean;

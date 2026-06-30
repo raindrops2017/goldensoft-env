@@ -81,8 +81,11 @@ export default function DiscountDialog({
     onClose();
   };
 
+  const maxDiscountAllowed = subtotal * 0.49;
+  const isOverLimit = mode === "value" && parsed > maxDiscountAllowed;
+
   const handleApply = () => {
-    if (!preview) return;
+    if (!preview || isOverLimit) return;
     const value = Math.max(0, Math.min(preview.value, subtotal));
     onApply(value, 0); 
     onClose();
@@ -167,6 +170,11 @@ export default function DiscountDialog({
                     = {preview.percent.toFixed(1)}%
                   </p>
                 )}
+                {isOverLimit && (
+                  <p className="text-xs font-bold text-red-500 mt-1 animate-pulse">
+                    Discount value must not exceed 49% of subtotal (max: {maxDiscountAllowed.toFixed(2)} EGP) / قيمة الخصم يجب ألا تتجاوز ٤٩٪ من المجموع
+                  </p>
+                )}
               </div>
             )}
           </div>
@@ -215,7 +223,7 @@ export default function DiscountDialog({
           </div>
           {mode === "value" && (
             <div className="flex gap-2">
-              <Button type="button" onClick={handleApply}>
+              <Button type="button" disabled={isOverLimit} onClick={handleApply}>
                 Apply
               </Button>
             </div>

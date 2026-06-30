@@ -31,3 +31,5 @@ export * from './tables.schema';
 export * from './menu.schema';
 export * from './checks.schema';
 export * from './calculations';
+export * from './logs.schema';
+

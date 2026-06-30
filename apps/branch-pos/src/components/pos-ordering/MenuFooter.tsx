@@ -24,21 +24,26 @@ import { toast } from "sonner";
 import { usePermissions } from "@/hooks/usePermissions";
 import { PERMISSIONS } from "@goldensoft/core-schemas";
 import { useChecksApi } from "@/hooks/api/useChecksApi";
+import { useLanSocket } from "@/hooks/useLanSocket";
 import { SupervisorOverrideDialog } from "./SupervisorOverrideDialog";
 import { TransferTableDialog } from "./TransferTableDialog";
 import { TransferWaiterDialog } from "./TransferWaiterDialog";
 import { HasPermission } from "../auth/HasPermission";
+import { GuestCountDialog } from "./GuestCountDialog";
+import { TableNameDialog } from "./TableNameDialog";
 
 interface CheckInfo {
   formattedDate: string;
   formattedTime: string;
   checkNo: string | number;
   tableNo: string | undefined;
+  tableId?: string | null;
   tableName: string;
   guestNo: number;
   waiterName: string | number;
   cashierName: string;
   printCount: number;
+  waiterId?: string;
 }
 
 interface Props {
@@ -61,6 +66,8 @@ interface Props {
   onNewCheck?: () => void;
   mode?: 'dining' | 'dine-in' | 'din-in' | 'takeaway' | 'delivery';
   mood?: 'dining' | 'dine-in' | 'din-in' | 'takeaway' | 'delivery';
+  onGuestCountChange?: (count: number) => void;
+  onTableNameChange?: (name: string) => void;
 }
 
 function InfoRow({
@@ -68,20 +75,27 @@ function InfoRow({
   label,
   value,
   hideOnMobile = false,
+  onClick,
 }: {
   icon: React.ReactNode;
   label: string;
   value: React.ReactNode;
   hideOnMobile?: boolean;
+  onClick?: () => void;
 }) {
   return (
     <div
-      className={`flex items-center justify-between ${hideOnMobile ? "hidden lg:flex" : ""}`}
+      onClick={onClick}
+      className={`flex items-center justify-between ${hideOnMobile ? "hidden lg:flex" : ""} ${
+        onClick ? "cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700/50 p-1.5 -m-1.5 rounded-xl transition active:scale-98 select-none" : ""
+      }`}
     >
       <span className="text-gray-500 dark:text-gray-400 flex items-center gap-2">
         {icon} {label}
       </span>
-      <span className="font-semibold text-gray-800 dark:text-white truncate max-w-[120px]">
+      <span className={`font-semibold truncate max-w-[120px] ${
+        onClick ? "text-indigo-600 dark:text-indigo-400 underline decoration-dotted" : "text-gray-800 dark:text-white"
+      }`}>
         {value}
       </span>
     </div>
@@ -108,12 +122,15 @@ export default function MenuFooter({
   onNewCheck,
   mode,
   mood,
+  onGuestCountChange,
+  onTableNameChange,
 }: Props) {
   const activeMode = mode || mood;
   const showTableInfo = activeMode !== "takeaway" && activeMode !== "delivery";
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const checksApi = useChecksApi();
+  const { logAction } = useLanSocket();
 
   // Dialog States
   const [transferModalOpen, setTransferModalOpen] = useState(false);
@@ -124,7 +141,90 @@ export default function MenuFooter({
   const [isTransferring, setIsTransferring] = useState(false);
   const [isTransferringWaiter, setIsTransferringWaiter] = useState(false);
   const [savedSupervisorPin, setSavedSupervisorPin] = useState<string | undefined>(undefined);
+  const [savedSupervisorId, setSavedSupervisorId] = useState<string | undefined>(undefined);
+  const [savedSupervisorName, setSavedSupervisorName] = useState<string | undefined>(undefined);
   const [savedWaiterSupervisorPin, setSavedWaiterSupervisorPin] = useState<string | undefined>(undefined);
+  const [savedWaiterSupervisorId, setSavedWaiterSupervisorId] = useState<string | undefined>(undefined);
+  const [savedWaiterSupervisorName, setSavedWaiterSupervisorName] = useState<string | undefined>(undefined);
+
+  // Guest Count and Table Name States
+  const [guestCountModalOpen, setGuestCountModalOpen] = useState(false);
+  const [tableNameModalOpen, setTableNameModalOpen] = useState(false);
+  const [isSavingGuestCount, setIsSavingGuestCount] = useState(false);
+  const [isSavingTableName, setIsSavingTableName] = useState(false);
+
+  const handleSaveGuestCount = async (newCount: number, supervisorPin?: string, supervisorId?: string) => {
+    if (isNewCheck) {
+      if (onGuestCountChange) {
+        onGuestCountChange(newCount);
+      }
+      setGuestCountModalOpen(false);
+      return;
+    }
+
+    if (!checkId) {
+      toast.error("No active check to update");
+      return;
+    }
+
+    setIsSavingGuestCount(true);
+    try {
+      await checksApi.updateCheckGuestCount.mutateAsync({
+        chkId: checkId,
+        guestCount: newCount,
+        supervisorPin,
+        supervisorId,
+      });
+      toast.success("Guest count updated successfully");
+      setGuestCountModalOpen(false);
+
+      // Invalidate queries to refresh UI
+      queryClient.invalidateQueries({ queryKey: ["openChecks"] });
+      queryClient.invalidateQueries({ queryKey: ["checks"] });
+      queryClient.invalidateQueries({ queryKey: ["check", checkId] });
+    } catch (err: any) {
+      const errMsg = err.response?.data?.error || err.message || "Failed to update guest count";
+      toast.error(errMsg);
+      throw err;
+    } finally {
+      setIsSavingGuestCount(false);
+    }
+  };
+
+  const handleSaveTableName = async (newName: string) => {
+    if (isNewCheck) {
+      if (onTableNameChange) {
+        onTableNameChange(newName);
+      }
+      setTableNameModalOpen(false);
+      return;
+    }
+
+    if (!checkId) {
+      toast.error("No active check to update");
+      return;
+    }
+
+    setIsSavingTableName(true);
+    try {
+      await checksApi.updateCheckTableName.mutateAsync({
+        chkId: checkId,
+        tableName: newName,
+      });
+      toast.success("Table name updated successfully");
+      setTableNameModalOpen(false);
+
+      // Invalidate queries to refresh UI
+      queryClient.invalidateQueries({ queryKey: ["openChecks"] });
+      queryClient.invalidateQueries({ queryKey: ["checks"] });
+      queryClient.invalidateQueries({ queryKey: ["check", checkId] });
+    } catch (err: any) {
+      const errMsg = err.response?.data?.error || err.message || "Failed to update table name";
+      toast.error(errMsg);
+    } finally {
+      setIsSavingTableName(false);
+    }
+  };
 
   const handleTransferClick = () => {
     setSupervisorRequiredPerm(PERMISSIONS.CHECK_TABLE_TRANSFER);
@@ -146,13 +246,17 @@ export default function MenuFooter({
     }
   };
 
-  const handleSupervisorSubmit = (pin: string) => {
+  const handleSupervisorSubmit = (pin: string, supervisorId: string, supervisorUsername: string) => {
     if (supervisorRequiredPerm === PERMISSIONS.CHECK_TABLE_TRANSFER) {
       setSavedSupervisorPin(pin);
+      setSavedSupervisorId(supervisorId);
+      setSavedSupervisorName(supervisorUsername);
       setSupervisorOpen(false);
       setTransferModalOpen(true);
     } else if (supervisorRequiredPerm === PERMISSIONS.CHECK_WAITER_TRANSFER) {
       setSavedWaiterSupervisorPin(pin);
+      setSavedWaiterSupervisorId(supervisorId);
+      setSavedWaiterSupervisorName(supervisorUsername);
       setSupervisorOpen(false);
       setTransferWaiterModalOpen(true);
     }
@@ -168,11 +272,15 @@ export default function MenuFooter({
       await checksApi.transferTable.mutateAsync({
         chkId: checkId,
         targetTableId,
-        supervisorPin: savedSupervisorPin
+        supervisorPin: savedSupervisorPin,
+        supervisorId: savedSupervisorId
       });
+      logAction('TABLE_TRANSFER', { checkId, targetTableId, supervisorPinUsed: !!savedSupervisorPin }, { tableId: checkInfo.tableId, tableNo: checkInfo.tableNo, checkId, permitterId: savedSupervisorId, permitterName: savedSupervisorName });
       toast.success("Table transferred successfully!");
       setTransferModalOpen(false);
       setSavedSupervisorPin(undefined);
+      setSavedSupervisorId(undefined);
+      setSavedSupervisorName(undefined);
       
       // Invalidate queries to refresh UI
       queryClient.invalidateQueries({ queryKey: ["openChecks"] });
@@ -182,12 +290,14 @@ export default function MenuFooter({
       navigate("/dine-in");
     } catch (err: any) {
       const errMsg = err.response?.data?.error || err.message || "Failed to transfer table";
-      if (savedSupervisorPin && (errMsg.includes("supervisor") || errMsg.includes("PIN") || errMsg.includes("Unauthorized") || errMsg.includes("privilege"))) {
+      if (savedSupervisorPin && (errMsg.includes("supervisor") || errMsg.includes("PIN") || errMsg.includes("Unauthorized") || errMsg.includes("privilege") || errMsg.includes("Forbidden"))) {
         setTransferModalOpen(false);
         setSupervisorError(errMsg);
         setSupervisorRequiredPerm(PERMISSIONS.CHECK_TABLE_TRANSFER);
         setSupervisorOpen(true);
         setSavedSupervisorPin(undefined);
+        setSavedSupervisorId(undefined);
+        setSavedSupervisorName(undefined);
       } else {
         toast.error(errMsg);
       }
@@ -206,11 +316,15 @@ export default function MenuFooter({
       await checksApi.transferWaiter.mutateAsync({
         chkId: checkId,
         targetWaiterId,
-        supervisorPin: savedWaiterSupervisorPin
+        supervisorPin: savedWaiterSupervisorPin,
+        supervisorId: savedWaiterSupervisorId
       });
+      logAction('WAITER_TRANSFER', { checkId, targetWaiterId, supervisorPinUsed: !!savedWaiterSupervisorPin }, { tableId: checkInfo.tableId, tableNo: checkInfo.tableNo, checkId, permitterId: savedWaiterSupervisorId, permitterName: savedWaiterSupervisorName });
       toast.success("Waiter transferred successfully!");
       setTransferWaiterModalOpen(false);
       setSavedWaiterSupervisorPin(undefined);
+      setSavedWaiterSupervisorId(undefined);
+      setSavedWaiterSupervisorName(undefined);
       
       // Invalidate queries to refresh UI
       queryClient.invalidateQueries({ queryKey: ["openChecks"] });
@@ -220,12 +334,14 @@ export default function MenuFooter({
       navigate("/dine-in");
     } catch (err: any) {
       const errMsg = err.response?.data?.error || err.message || "Failed to transfer waiter";
-      if (savedWaiterSupervisorPin && (errMsg.includes("supervisor") || errMsg.includes("PIN") || errMsg.includes("Unauthorized") || errMsg.includes("privilege"))) {
+      if (savedWaiterSupervisorPin && (errMsg.includes("supervisor") || errMsg.includes("PIN") || errMsg.includes("Unauthorized") || errMsg.includes("privilege") || errMsg.includes("Forbidden"))) {
         setTransferWaiterModalOpen(false);
         setSupervisorError(errMsg);
         setSupervisorRequiredPerm(PERMISSIONS.CHECK_WAITER_TRANSFER);
         setSupervisorOpen(true);
         setSavedWaiterSupervisorPin(undefined);
+        setSavedWaiterSupervisorId(undefined);
+        setSavedWaiterSupervisorName(undefined);
       } else {
         toast.error(errMsg);
       }
@@ -249,7 +365,6 @@ export default function MenuFooter({
   const { hasPermission: can } = usePermissions();
 
   const canSend = can(PERMISSIONS.CHECK_CREATE);
-  const canDiscount = can(PERMISSIONS.DISCOUNT_APPLY);
   const canVoid = can(PERMISSIONS.CHECK_VOID);
   const canPay = can(PERMISSIONS.CHECK_CLOSE);
   const canTransferTable = can(PERMISSIONS.CHECK_TABLE_TRANSFER);
@@ -257,10 +372,23 @@ export default function MenuFooter({
 
   const tooltipNoAccess = "You don't have access to this";
 
+  const isDineIn = activeMode === "dining" || activeMode === "dine-in" || activeMode === "din-in";
 
-  // New check gating: Disable everything except Send until first send.
-  const isSendDisabled = isSending || !canSend || (isNewCheck && !hasItems);
-  const isOtherActionsDisabled = isNewCheck;
+  let isSendDisabled = false;
+  let isOtherActionsDisabled = false;
+
+  if (isDineIn) {
+    if (isNewCheck) {
+      isSendDisabled = isSending || !canSend || !hasItems;
+      isOtherActionsDisabled = true;
+    } else {
+      isSendDisabled = isSending || !canSend;
+      isOtherActionsDisabled = false;
+    }
+  } else {
+    isSendDisabled = isSending || !canSend || !hasItems;
+    isOtherActionsDisabled = !hasItems;
+  }
 
   return (
     <>
@@ -315,8 +443,7 @@ export default function MenuFooter({
 
           <button
             onClick={onDiscount}
-            disabled={isOtherActionsDisabled || !canDiscount}
-            title={!canDiscount ? tooltipNoAccess : undefined}
+            disabled={isOtherActionsDisabled}
             className="relative flex items-center justify-center gap-1 py-2 lg:py-3 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-sm font-medium transition disabled:opacity-50"
           >
             <Percent size={18} />
@@ -411,6 +538,7 @@ export default function MenuFooter({
               icon={<Users size={14} />}
               label="Guests"
               value={guestNo}
+              onClick={() => setGuestCountModalOpen(true)}
             />
           )}
 
@@ -452,6 +580,7 @@ export default function MenuFooter({
                 label="Name"
                 value={tableName}
                 hideOnMobile
+                onClick={() => setTableNameModalOpen(true)}
             />
           )}
           </div>
@@ -473,6 +602,8 @@ export default function MenuFooter({
         onClose={() => {
           setTransferModalOpen(false);
           setSavedSupervisorPin(undefined);
+          setSavedSupervisorId(undefined);
+          setSavedSupervisorName(undefined);
         }}
         tableName={tableName}
         tableNo={tableNo}
@@ -485,11 +616,30 @@ export default function MenuFooter({
         onClose={() => {
           setTransferWaiterModalOpen(false);
           setSavedWaiterSupervisorPin(undefined);
+          setSavedWaiterSupervisorId(undefined);
+          setSavedWaiterSupervisorName(undefined);
         }}
         tableName={tableName}
         tableNo={tableNo}
         onTransfer={handleWaiterSelect}
         isTransferring={isTransferringWaiter}
+        currentWaiterId={checkInfo.waiterId}
+      />
+
+      <GuestCountDialog
+        open={guestCountModalOpen}
+        onClose={() => setGuestCountModalOpen(false)}
+        currentGuestCount={guestNo}
+        onSave={handleSaveGuestCount}
+        isSaving={isSavingGuestCount}
+      />
+
+      <TableNameDialog
+        open={tableNameModalOpen}
+        onClose={() => setTableNameModalOpen(false)}
+        currentTableName={tableName}
+        onSave={handleSaveTableName}
+        isSaving={isSavingTableName}
       />
     </>
   );

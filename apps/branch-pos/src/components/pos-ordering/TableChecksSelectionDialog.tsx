@@ -22,21 +22,21 @@ export function TableChecksSelectionDialog({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm select-none">
-      <div className="w-[780px] max-w-[95vw] bg-slate-900 border border-slate-800 rounded-[2.5rem] shadow-2xl p-6 flex flex-col gap-4 animate-in zoom-in-95 duration-100 max-h-[90vh]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm select-none">
+      <div className="w-[780px] max-w-[95vw] bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-[2.5rem] shadow-2xl p-6 flex flex-col gap-4 animate-in zoom-in-95 duration-100 max-h-[90vh] text-slate-900 dark:text-slate-100">
         
         {/* Header */}
-        <div className="flex justify-between items-center border-b border-slate-800 pb-3">
+        <div className="flex justify-between items-center border-b border-slate-100 dark:border-slate-800 pb-3">
           <div>
-            <span className="text-[10px] font-black uppercase text-indigo-400 tracking-wider">Multiple Open Bills</span>
-            <h3 className="font-black text-lg text-slate-100">
+            <span className="text-[10px] font-black uppercase text-indigo-650 dark:text-indigo-400 tracking-wider">Multiple Open Bills</span>
+            <h3 className="font-black text-xl text-slate-900 dark:text-slate-100">
               Table {table.name || `T${table.number}`}
             </h3>
           </div>
           <Button
             onClick={onClose}
             variant="ghost"
-            className="h-10 w-10 text-slate-400 hover:text-white hover:bg-slate-800 rounded-xl cursor-pointer active:scale-95 transition-all"
+            className="h-10 w-10 text-slate-400 dark:text-slate-500 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl cursor-pointer active:scale-95 transition-all"
           >
             <X size={20} />
           </Button>
@@ -48,15 +48,15 @@ export function TableChecksSelectionDialog({
             const isPrinted = (chk.printCount || 0) > 0;
             const config = isPrinted
               ? {
-                  bg: 'bg-fuchsia-500/5 dark:bg-fuchsia-500/10 text-fuchsia-600 dark:text-fuchsia-400',
-                  border: 'border-fuchsia-500/30 hover:border-fuchsia-500/60 hover:bg-fuchsia-500/15',
+                  bg: 'bg-fuchsia-50 dark:bg-fuchsia-950/20 text-fuchsia-700 dark:text-fuchsia-400',
+                  border: 'border-fuchsia-200 dark:border-fuchsia-500/30 hover:border-fuchsia-500 dark:hover:border-fuchsia-500/60 hover:bg-fuchsia-100 dark:hover:bg-fuchsia-950/30',
                   pulse: 'bg-fuchsia-500',
                   label: 'Printed',
                   icon: PrintedTable
                 }
               : {
-                  bg: 'bg-amber-500/5 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400',
-                  border: 'border-amber-500/30 hover:border-amber-500/60 hover:bg-amber-500/15',
+                  bg: 'bg-amber-50 dark:bg-amber-950/20 text-amber-700 dark:text-amber-400',
+                  border: 'border-amber-200 dark:border-amber-500/30 hover:border-amber-500 dark:hover:border-amber-500/60 hover:bg-amber-100 dark:hover:bg-amber-950/30',
                   pulse: 'bg-amber-500',
                   label: 'Occupied',
                   icon: OccTable
@@ -82,27 +82,21 @@ export function TableChecksSelectionDialog({
                   <TableIcon />
                 </div>
 
-                {/* Check No Label */}
-                <span className="font-extrabold text-xs text-slate-800 dark:text-white">
-                  Check #{chk.chkNo}
+                {/* Check No Label / Custom Table Name */}
+                <span className="font-extrabold text-xs text-slate-900 dark:text-white text-center truncate max-w-full px-1" title={chk.tableName || `Check #${chk.chkNo}`}>
+                  {chk.tableName || `Check #${chk.chkNo}`}
                 </span>
+
+                {chk.tableName && (
+                  <span className="text-[9px] font-black text-slate-500 dark:text-slate-400 mt-0.5 select-none">
+                    Check #{chk.chkNo}
+                  </span>
+                )}
 
                 {/* Status Label */}
                 <span className="text-[8px] font-black uppercase tracking-wider scale-90 opacity-90 mt-0.5">
                   {config.label}
                 </span>
-
-                {/* Additional Info */}
-                {/* <div className="mt-1 flex flex-col items-center gap-0.5 text-[9px] text-slate-500 dark:text-slate-400 font-bold">
-                  <span className="flex items-center gap-0.5">
-                    <User size={10} className="opacity-70" />
-                    {chk.guestCount} G
-                  </span>
-                  <span className="flex items-center gap-0.5">
-                    <Clock size={10} className="opacity-70" />
-                    {chk.chkTime.slice(0, 5)}
-                  </span>
-                </div> */}
               </div>
             );
           })}

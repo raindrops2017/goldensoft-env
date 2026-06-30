@@ -6,7 +6,8 @@ import type {
   VoidCheckItemInput, 
   EntCheckItemInput,
   CheckWithItems,
-  SplitCheckInput
+  SplitCheckInput,
+  CloseCheckInput
 } from '@goldensoft/core-schemas';
 
 export const useOpenChecks = () => {
@@ -15,6 +16,16 @@ export const useOpenChecks = () => {
     queryFn: async () => {
       const res = await api.get('/checks/open');
       return res.data.data as CheckWithItems[];
+    },
+  });
+};
+
+export const useCustomers = () => {
+  return useQuery({
+    queryKey: ['customers'],
+    queryFn: async () => {
+      const res = await api.get('/customers');
+      return res.data.data;
     },
   });
 };
@@ -80,14 +91,14 @@ export const useChecksApi = () => {
   });
 
   const voidCheck = useMutation({
-    mutationFn: async ({ chkId, reasonId }: { chkId: string, reasonId: string }) => {
-      const res = await api.put(`/checks/${chkId}/void`, { reasonId });
+    mutationFn: async ({ chkId, reasonId, supervisorPin, supervisorId }: { chkId: string, reasonId: string, supervisorPin?: string, supervisorId?: string }) => {
+      const res = await api.put(`/checks/${chkId}/void`, { voidReason: reasonId, supervisorPin, supervisorId });
       return res.data.data as CheckWithItems;
     }
   });
 
   const updateCheckDiscount = useMutation({
-    mutationFn: async ({ chkId, data }: { chkId: string, data: { discount: number; discountPercent: number } }) => {
+    mutationFn: async ({ chkId, data }: { chkId: string, data: { discount: number; discountPercent: number; supervisorPin?: string; supervisorId?: string } }) => {
       const res = await api.put(`/checks/${chkId}/discount`, data);
       return res.data.data as CheckWithItems;
     }
@@ -101,22 +112,50 @@ export const useChecksApi = () => {
   });
 
   const printCheck = useMutation({
-    mutationFn: async ({ chkId, supervisorPin, printerId }: { chkId: string, supervisorPin?: string, printerId?: string }) => {
-      const res = await api.post(`/checks/${chkId}/print`, { supervisorPin, printerId });
+    mutationFn: async ({ chkId, supervisorPin, supervisorId, printerId }: { chkId: string, supervisorPin?: string, supervisorId?: string, printerId?: string }) => {
+      const res = await api.post(`/checks/${chkId}/print`, { supervisorPin, supervisorId, printerId });
       return res.data.data as CheckWithItems;
     }
   });
 
   const transferTable = useMutation({
-    mutationFn: async ({ chkId, targetTableId, supervisorPin }: { chkId: string, targetTableId: string, supervisorPin?: string }) => {
-      const res = await api.put(`/checks/${chkId}/table-transfer`, { targetTableId, supervisorPin });
+    mutationFn: async ({ chkId, targetTableId, supervisorPin, supervisorId }: { chkId: string, targetTableId: string, supervisorPin?: string, supervisorId?: string }) => {
+      const res = await api.put(`/checks/${chkId}/table-transfer`, { targetTableId, supervisorPin, supervisorId });
       return res.data.data as CheckWithItems;
     }
   });
 
   const transferWaiter = useMutation({
-    mutationFn: async ({ chkId, targetWaiterId, supervisorPin }: { chkId: string, targetWaiterId: string, supervisorPin?: string }) => {
-      const res = await api.put(`/checks/${chkId}/waiter-transfer`, { targetWaiterId, supervisorPin });
+    mutationFn: async ({ chkId, targetWaiterId, supervisorPin, supervisorId }: { chkId: string, targetWaiterId: string, supervisorPin?: string, supervisorId?: string }) => {
+      const res = await api.put(`/checks/${chkId}/waiter-transfer`, { targetWaiterId, supervisorPin, supervisorId });
+      return res.data.data as CheckWithItems;
+    }
+  });
+
+  const updateCheckGuestCount = useMutation({
+    mutationFn: async ({ chkId, guestCount, supervisorPin, supervisorId }: { chkId: string, guestCount: number, supervisorPin?: string, supervisorId?: string }) => {
+      const res = await api.put(`/checks/${chkId}/guest-count`, { guestCount, supervisorPin, supervisorId });
+      return res.data.data as CheckWithItems;
+    }
+  });
+
+  const updateCheckTableName = useMutation({
+    mutationFn: async ({ chkId, tableName }: { chkId: string, tableName: string }) => {
+      const res = await api.put(`/checks/${chkId}/table-name`, { tableName });
+      return res.data.data as CheckWithItems;
+    }
+  });
+
+  const updateCheckCustomerInfo = useMutation({
+    mutationFn: async ({ chkId, customerName, customerPhone }: { chkId: string, customerName?: string, customerPhone?: string }) => {
+      const res = await api.put(`/checks/${chkId}/customer`, { customerName, customerPhone });
+      return res.data.data as CheckWithItems;
+    }
+  });
+
+  const closeCheck = useMutation({
+    mutationFn: async ({ chkId, data }: { chkId: string, data: CloseCheckInput }) => {
+      const res = await api.post(`/checks/${chkId}/close`, data);
       return res.data.data as CheckWithItems;
     }
   });
@@ -131,6 +170,11 @@ export const useChecksApi = () => {
     splitCheck,
     printCheck,
     transferTable,
-    transferWaiter
+    transferWaiter,
+    updateCheckGuestCount,
+    updateCheckTableName,
+    updateCheckCustomerInfo,
+    closeCheck
   };
 };
+

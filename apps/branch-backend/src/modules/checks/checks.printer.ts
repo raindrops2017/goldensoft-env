@@ -127,37 +127,57 @@ export class ChecksPrinter {
         const activeQty = item.qty - (item.voidQty || 0);
         if (activeQty <= 0) continue;
 
-        // Comps: Display price as 0, and add comp indicator
-        const isComp = (item.entQty || 0) > 0;
-        const itemPrice = isComp ? 0 : item.itemPrice;
-        const itemTotal = activeQty * itemPrice;
+        const compQty = item.entQty || 0;
+        const paidQty = Math.max(0, activeQty - compQty);
 
         // Bilingual Item Name format: English Name / Arabic Name
         const namePart = item.arabicName 
           ? `${item.itemName} / ${item.arabicName}`
           : item.itemName || 'Menu Item';
 
-        // Quantity format block: Qty x UnitPrice
-        const pricingText = `${activeQty} x ${itemPrice.toFixed(2)}`;
-        const totalText = `${itemTotal.toFixed(2)} EGP`;
+        // 1. Print Paid portion (if any)
+        if (paidQty > 0) {
+          const itemPrice = item.itemPrice;
+          const itemTotal = paidQty * itemPrice;
+          const pricingText = `${paidQty} x ${itemPrice.toFixed(2)}`;
+          const totalText = `${itemTotal.toFixed(2)} EGP`;
 
-        // Output item name on its own line if long, or let it take full width
-        appendLine(namePart, { bold: isComp });
-        
-        // Print secondary details line: comps indicator + price summary + total
-        const detailsLineLeft = isComp ? '  ** COMP / ضيافة **' : `  ${pricingText}`;
-        appendLine(this.justifyLine(detailsLineLeft, totalText));
+          appendLine(namePart);
+          appendLine(this.justifyLine(`  ${pricingText}`, totalText));
 
-        // Display modifiers (if any)
-        if (item.modifiers && item.modifiers.length > 0) {
-          for (const mod of item.modifiers) {
-            const modPrice = isComp ? 0 : (mod.price || 0);
-            const modTotal = (mod.qty || 1) * modPrice;
-            const modName = mod.name ? ` + ${mod.name}` : ' + Modifier';
-            const modPriceText = `${mod.qty || 1} x ${modPrice.toFixed(2)}`;
-            
-            appendLine(modName);
-            appendLine(this.justifyLine(`    ${modPriceText}`, `${modTotal.toFixed(2)} EGP`));
+          // Display modifiers for paid portion (if any)
+          if (item.modifiers && item.modifiers.length > 0) {
+            for (const mod of item.modifiers) {
+              const modPrice = mod.price || 0;
+              const modTotal = (mod.qty || 1) * modPrice;
+              const modName = mod.name ? ` + ${mod.name}` : ' + Modifier';
+              const modPriceText = `${mod.qty || 1} x ${modPrice.toFixed(2)}`;
+              
+              appendLine(modName);
+              appendLine(this.justifyLine(`    ${modPriceText}`, `${modTotal.toFixed(2)} EGP`));
+            }
+          }
+        }
+
+        // 2. Print Comped portion (if any)
+        if (compQty > 0) {
+          const itemPrice = 0;
+          const itemTotal = 0;
+
+          appendLine(namePart, { bold: true });
+          appendLine(this.justifyLine('  ** COMP / ضيافة **', `${itemTotal.toFixed(2)} EGP`));
+          
+          // Display modifiers for comped portion (if any)
+          if (item.modifiers && item.modifiers.length > 0) {
+            for (const mod of item.modifiers) {
+              const modPrice = 0;
+              const modTotal = 0;
+              const modName = mod.name ? ` + ${mod.name}` : ' + Modifier';
+              const modPriceText = `${mod.qty || 1} x ${modPrice.toFixed(2)}`;
+              
+              appendLine(modName);
+              appendLine(this.justifyLine(`    ${modPriceText}`, `${modTotal.toFixed(2)} EGP`));
+            }
           }
         }
       }

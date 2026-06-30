@@ -1,3 +1,4 @@
+import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   Lock,
@@ -8,7 +9,8 @@ import {
   Edit,
   ShoppingBag,
   Motorbike,
-  List
+  List,
+  Menu
 } from 'lucide-react';
 import type { TableSectionWithTables } from '@/hooks/useTables';
 import { HasPermission } from '../auth/HasPermission';
@@ -59,8 +61,21 @@ export function FloorPlanHeader({
   const lock = useLockStore((state) => state.lock);
   const currentUser = useAuthStore((state) => state.user);
 
+  const [menuOpen, setMenuOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setMenuOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
   return (
-    <header className="h-20 px-6 bg-white/80 dark:bg-[#15111d]/85 backdrop-blur-xl border-b border-slate-200 dark:border-white/5 flex items-center justify-between shadow-sm z-20">
+    <header className="relative h-20 px-6 bg-white/80 dark:bg-[#15111d]/85 backdrop-blur-xl border-b border-slate-200 dark:border-white/5 flex items-center justify-between shadow-sm z-20">
       {/* Left: Compact Section tabs list */}
       <div className="flex items-center gap-2 overflow-x-auto select-none no-scrollbar py-1">
         {sections.map((section) => {
@@ -74,16 +89,17 @@ export function FloorPlanHeader({
                   setSelectedTableIds([]);
                   setActiveConfigTableId(null);
                 }}
-                className={`h-16 px-5 rounded-2xl border flex items-center gap-2.5 font-bold tracking-wide transition-all active:scale-95 duration-75 text-sm cursor-pointer ${
+                className={`h-16 px-4 lg:px-5 rounded-2xl border flex items-center justify-center lg:gap-2.5 font-bold tracking-wide transition-all active:scale-95 duration-75 text-sm cursor-pointer ${
                   isActive
                     ? 'bg-indigo-600/10 border-indigo-600/40 text-indigo-600 dark:text-indigo-400'
                     : 'bg-white dark:bg-[#1a1626] border-slate-200 dark:border-white/5 text-slate-600 dark:text-gray-400 hover:bg-slate-100 dark:hover:bg-[#211d31]'
                 }`}
+                title={section.name}
               >
                 <SectionIcon className="w-4 h-4" />
-                <span>{section.name}</span>
+                <span className="hidden lg:inline">{section.name}</span>
                 <span
-                  className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full ${
+                  className={`hidden lg:inline text-[10px] font-extrabold px-2 py-0.5 rounded-full ${
                     isActive
                       ? 'bg-indigo-600 dark:bg-indigo-500 text-white'
                       : 'bg-slate-200 dark:bg-white/10 text-slate-500 dark:text-slate-400'
@@ -117,16 +133,17 @@ export function FloorPlanHeader({
               setSelectedTableIds([]);
               setActiveConfigTableId(null);
             }}
-            className={`h-16 px-5 rounded-2xl border flex items-center gap-2.5 font-bold tracking-wide transition-all active:scale-95 duration-75 text-sm cursor-pointer ${
+            className={`h-16 px-4 lg:px-5 rounded-2xl border flex items-center justify-center lg:gap-2.5 font-bold tracking-wide transition-all active:scale-95 duration-75 text-sm cursor-pointer ${
               activeSectionId === 'opened-checks'
                 ? 'bg-amber-600/10 border-amber-600/40 text-amber-600 dark:text-amber-400'
                 : 'bg-white dark:bg-[#1a1626] border-slate-200 dark:border-white/5 text-slate-600 dark:text-gray-400 hover:bg-slate-100 dark:hover:bg-[#211d31]'
             }`}
+            title="Opened Checks"
           >
             <List className="w-4 h-4" />
-            <span>Opened Checks</span>
+            <span className="hidden lg:inline">Opened Checks</span>
             <span
-              className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full ${
+              className={`hidden lg:inline text-[10px] font-extrabold px-2 py-0.5 rounded-full ${
                 activeSectionId === 'opened-checks'
                   ? 'bg-amber-600 dark:bg-amber-500 text-white'
                   : 'bg-slate-200 dark:bg-white/10 text-slate-500 dark:text-slate-400'
@@ -140,10 +157,11 @@ export function FloorPlanHeader({
         {isEditMode && (
           <button
             onClick={() => setIsAddSectionOpen(true)}
-            className="h-16 px-4 border border-dashed border-slate-300 dark:border-white/10 rounded-2xl flex items-center gap-1.5 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#1d192a] font-bold text-xs active:scale-95 cursor-pointer"
+            className="h-16 px-3 lg:px-4 border border-dashed border-slate-300 dark:border-white/10 rounded-2xl flex items-center justify-center lg:gap-1.5 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#1d192a] font-bold text-xs active:scale-95 cursor-pointer"
+            title="Add Section"
           >
             <Plus className="w-4 h-4" />
-            Add Section
+            <span className="hidden lg:inline">Add Section</span>
           </button>
         )}
       </div>
@@ -211,58 +229,123 @@ export function FloorPlanHeader({
           </button>
         )}
 
+        {/* Navigation & Lock Dropdown for Mobile */}
         {!isEditMode && (
-          <HasPermission permission={PERMISSIONS.DELIVERY_OPEN}>
+          <div className="flex items-center gap-2 lg:hidden">
+            <div className="relative" ref={dropdownRef}>
+              <button
+                onClick={() => setMenuOpen(!menuOpen)}
+                className="h-16 w-16 rounded-2xl border border-slate-200 dark:border-white/10 bg-white dark:bg-[#1a1626] text-slate-600 dark:text-gray-400 hover:bg-slate-100 dark:hover:bg-[#211d31] flex items-center justify-center font-bold text-sm active:scale-95 duration-75 cursor-pointer"
+                title="Menu"
+              >
+                <Menu className="w-6 h-6" />
+              </button>
+
+              {menuOpen && (
+                <div className="absolute right-0 mt-2 w-56 rounded-2xl bg-white dark:bg-[#1c1829] border border-slate-200 dark:border-white/10 shadow-2xl z-50 overflow-hidden py-1">
+                  <HasPermission permission={PERMISSIONS.DELIVERY_OPEN}>
+                    <button
+                      onClick={() => {
+                        setMenuOpen(false);
+                        navigate('/delivery');
+                      }}
+                      className="w-full h-16 px-5 flex items-center gap-3 text-sm font-bold text-slate-700 dark:text-gray-300 hover:bg-slate-100 dark:hover:bg-white/5 active:scale-95 duration-75 transition-transform cursor-pointer"
+                    >
+                      <Motorbike className="w-5 h-5 text-indigo-500" />
+                      <span>Delivery</span>
+                    </button>
+                  </HasPermission>
+
+                  <HasPermission permission={PERMISSIONS.TAKEAWAY_OPEN}>
+                    <button
+                      onClick={() => {
+                        setMenuOpen(false);
+                        navigate('/takeaway');
+                      }}
+                      className="w-full h-16 px-5 flex items-center gap-3 text-sm font-bold text-slate-700 dark:text-gray-300 hover:bg-slate-100 dark:hover:bg-white/5 active:scale-95 duration-75 transition-transform cursor-pointer"
+                    >
+                      <ShoppingBag className="w-5 h-5 text-indigo-500" />
+                      <span>TakeAway</span>
+                    </button>
+                  </HasPermission>
+
+                  <button
+                    onClick={() => {
+                      setMenuOpen(false);
+                      if (currentUser) {
+                        lock(currentUser);
+                      }
+                    }}
+                    className="w-full h-16 px-5 flex items-center gap-3 text-sm font-bold text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 active:scale-95 duration-75 transition-transform cursor-pointer"
+                  >
+                    <Lock className="w-5 h-5" />
+                    <span>Lock Terminal</span>
+                  </button>
+                </div>
+              )}
+            </div>
+
             <Button
-          variant="outline"
-          onClick={() => navigate('/delivery')}
-          className="h-16 px-5 rounded-2xl border-slate-200 dark:border-white/10 dark:bg-[#252036] text-sm font-bold active:scale-95"
-        >
-          <Motorbike className="w-4 h-4" />
-          Delivery
-        </Button>
-          </HasPermission>
-          
+              variant="destructive"
+              onClick={() => navigate('/')}
+              className="h-16 px-4 sm:px-5 rounded-2xl border-slate-200 dark:border-white/10 dark:bg-[#252036] text-sm font-bold active:scale-95 flex items-center gap-1.5"
+            >
+              <X className="w-4 h-4" />
+              <span className="hidden sm:inline">Exit</span>
+            </Button>
+          </div>
         )}
 
+        {/* Desktop Controls */}
         {!isEditMode && (
-          <HasPermission permission={PERMISSIONS.TAKEAWAY_OPEN}>
-          <Button
-          variant="outline"
-          onClick={() => navigate('/takeaway')}
-          className="h-16 px-5 rounded-2xl border-slate-200 dark:border-white/10 dark:bg-[#252036] text-sm font-bold active:scale-95"
-        >
-          <ShoppingBag className="w-4 h-4" />
-          TakeAway
-        </Button>
-          </HasPermission>  
-        )}
+          <div className="hidden lg:flex items-center gap-2">
+            <HasPermission permission={PERMISSIONS.DELIVERY_OPEN}>
+              <Button
+                variant="outline"
+                onClick={() => navigate('/delivery')}
+                className="h-16 px-4 xl:px-5 rounded-2xl border-slate-200 dark:border-white/10 dark:bg-[#252036] text-sm font-bold active:scale-95 flex items-center justify-center gap-1.5"
+                title="Delivery"
+              >
+                <Motorbike className="w-4 h-4" />
+                <span className="hidden xl:inline">Delivery</span>
+              </Button>
+            </HasPermission>
 
-        {/* Lock terminal button */}
-        {!isEditMode && (
-          <Button
-          variant="destructive"
-          onClick={() => {
-            if (currentUser) {
-              lock(currentUser);
-            }
-          }}
-          className="h-16 px-5 rounded-2xl bg-red-600 hover:bg-red-700 text-white border border-red-500 font-bold text-sm active:scale-95"
-          title="Lock Terminal"
-        >
-          <Lock className="w-4 h-4" />
-        </Button>
-        )}
-        
-        {!isEditMode && (
-        <Button
-          variant="destructive"
-          onClick={() => navigate('/')}
-          className="h-16 px-5 rounded-2xl border-slate-200 dark:border-white/10 dark:bg-[#252036] text-sm font-bold active:scale-95"
-        >
-          <X className="w-4 h-4" />
-          Exit
-        </Button>
+            <HasPermission permission={PERMISSIONS.TAKEAWAY_OPEN}>
+              <Button
+                variant="outline"
+                onClick={() => navigate('/takeaway')}
+                className="h-16 px-4 xl:px-5 rounded-2xl border-slate-200 dark:border-white/10 dark:bg-[#252036] text-sm font-bold active:scale-95 flex items-center justify-center gap-1.5"
+                title="TakeAway"
+              >
+                <ShoppingBag className="w-4 h-4" />
+                <span className="hidden xl:inline">TakeAway</span>
+              </Button>
+            </HasPermission>
+
+            <Button
+              variant="destructive"
+              onClick={() => {
+                if (currentUser) {
+                  lock(currentUser);
+                }
+              }}
+              className="h-16 px-4 xl:px-5 rounded-2xl bg-red-600 hover:bg-red-700 text-white border border-red-500 font-bold text-sm active:scale-95 flex items-center justify-center"
+              title="Lock Terminal"
+            >
+              <Lock className="w-4 h-4" />
+            </Button>
+
+            <Button
+              variant="destructive"
+              onClick={() => navigate('/')}
+              className="h-16 px-4 xl:px-5 rounded-2xl border-slate-200 dark:border-white/10 dark:bg-[#252036] text-sm font-bold active:scale-95 flex items-center justify-center gap-1.5"
+              title="Exit"
+            >
+              <X className="w-4 h-4" />
+              <span className="hidden xl:inline">Exit</span>
+            </Button>
+          </div>
         )}
       </div>
     </header>

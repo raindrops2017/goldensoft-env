@@ -4,7 +4,7 @@ import { eq, and, desc, gte, lte, gt, lt } from 'drizzle-orm';
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import { calculateCheckTotals } from '@goldensoft/core-schemas';
-import type { CreateCheckInput, AddCheckItemInput, VoidCheckItemInput, EntCheckItemInput, SplitCheckInput } from '@goldensoft/core-schemas';
+import type { CreateCheckInput, AddCheckItemInput, VoidCheckItemInput, EntCheckItemInput, SplitCheckInput, CloseCheckInput } from '@goldensoft/core-schemas';
 import { PERMISSIONS } from '@goldensoft/core-schemas';
 import { checksPrinter } from './checks.printer';
 
@@ -43,12 +43,15 @@ export class ChecksService {
       modifiers: modifiersList.filter((m: any) => m.checkItemId === i.id).map((m: any) => ({ price: m.price || 0, qty: m.qty }))
     });
 
+    const isDining = chk.checkKindId === 1;
+    const serviceChargePercent = isDining ? (opts.serviceChargePercent || 0) : 0;
+
     const totals = calculateCheckTotals(
       items.map(mapItem),
       0, // calculate base first to apply percent
       chk.deliveryCharge || 0,
       {
-        serviceChargePercent: opts.serviceChargePercent || 0,
+        serviceChargePercent,
         taxPercent: opts.taxPercent || 0,
         entTax: opts.entTax || 0
       }
@@ -64,7 +67,7 @@ export class ChecksService {
       actualDiscountValue,
       chk.deliveryCharge || 0,
       {
-        serviceChargePercent: opts.serviceChargePercent || 0,
+        serviceChargePercent,
         taxPercent: opts.taxPercent || 0,
         entTax: opts.entTax || 0
       }
@@ -91,7 +94,7 @@ export class ChecksService {
     return this.recalculateCheckTotalsSync(chkId, tx);
   }
 
-  private async validateWaiterAccess(chk: any, userId: string, tx: any = db) {
+  private validateWaiterAccessSync(chk: any, userId: string, tx: any = db) {
     const userRole = tx.select({ isWaiter: roles.isWaiter })
       .from(users)
       .leftJoin(roles, eq(users.roleId, roles.id))
@@ -118,8 +121,13 @@ export class ChecksService {
     }
   }
 
+  private async validateWaiterAccess(chk: any, userId: string, tx: any = db) {
+    return this.validateWaiterAccessSync(chk, userId, tx);
+  }
+
   async getOpenChecks() {
-    return await db.select().from(checks).where(eq(checks.chkStatusId, 1)).orderBy(desc(checks.createdAt));
+    const list = await db.select().from(checks).where(eq(checks.chkStatusId, 1)).orderBy(desc(checks.createdAt));
+    return list.map(chk => this.getCheckByIdSync(chk.id)).filter(Boolean);
   }
 
   async getHistoricalChecks(filters: any) {
@@ -164,12 +172,25 @@ export class ChecksService {
 
     const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
-    return await db.select().from(checks).where(whereClause).orderBy(desc(checks.createdAt));
+    const list = await db.select().from(checks).where(whereClause).orderBy(desc(checks.createdAt));
+    return list.map(chk => this.getCheckByIdSync(chk.id)).filter(Boolean);
   }
 
   getCheckByIdSync(id: string, tx: any = db) {
     const chk = tx.select().from(checks).where(eq(checks.id, id)).get();
     if (!chk) return null;
+
+    let waiterName: string | null = null;
+    if (chk.waiterId) {
+      const w = tx.select({ username: users.username }).from(users).where(eq(users.id, chk.waiterId)).get() as any;
+      if (w) waiterName = w.username;
+    }
+
+    let cashierName: string | null = null;
+    if (chk.cashierId) {
+      const c = tx.select({ username: users.username }).from(users).where(eq(users.id, chk.cashierId)).get() as any;
+      if (c) cashierName = c.username;
+    }
 
     const items = tx.select({
       id: checkItems.id,
@@ -222,6 +243,8 @@ export class ChecksService {
 
     return {
       ...chk,
+      waiterName,
+      cashierName,
       items: itemsWithMods
     };
   }
@@ -278,6 +301,8 @@ export class ChecksService {
       waiterId: isWaiterUser ? userId : null,
       shift: currentShift.shiftNumber,
       deliveryCharge: deliveryCharge,
+      customerName: data.customerName || null,
+      customerPhone: data.customerPhone || null,
       createdAt: now.toISOString(),
       updatedAt: now.toISOString()
     });
@@ -386,12 +411,23 @@ export class ChecksService {
     if (items.length === 0) throw new Error("Item not found");
     const item = items[0];
 
-    const maxEntAllowed = item.qty; // Cannot ENT more than available billable qty
-    if (data.entQty > maxEntAllowed) {
+    const newEntQty = item.entQty + data.entQty;
+    if (newEntQty < 0) {
+      throw new Error("Complimentary quantity cannot be less than zero.");
+    }
+    if (newEntQty > item.qty) {
       throw new Error("ENT quantity exceeds available quantity");
     }
 
-    const newEntQty = item.entQty + data.entQty;
+    // Check if comping this would make the entire check's billable quantity 0
+    const allItemsInCheck = await db.select({ id: checkItems.id, qty: checkItems.qty, entQty: checkItems.entQty }).from(checkItems).where(eq(checkItems.chkId, chkId)).all();
+    let totalBillableQty = 0;
+    for (const it of allItemsInCheck) {
+      totalBillableQty += Math.max(0, it.qty - it.entQty);
+    }
+    if (totalBillableQty - data.entQty <= 0) {
+      throw new Error("Cannot comp the last remaining billable item in the check.");
+    }
 
     await db.update(checkItems)
       .set({
@@ -435,10 +471,34 @@ export class ChecksService {
     }
     await this.validateWaiterAccess(chk, userId);
 
+    // Discount Rule: if data.discount > 0 and data.discountPercent === 0, it is a discount value (amount).
+    // Ensure discount value <= 49% of subtotal (totalItemsValue before discount)
+    if (data.discount > 0 && (!data.discountPercent || data.discountPercent === 0)) {
+      const items = db.select().from(checkItems).where(eq(checkItems.chkId, chkId)).all() as any[];
+      let totalItemsValue = 0;
+      for (const item of items) {
+        const billableQty = Math.max(0, item.qty - item.entQty);
+        let itemPriceTotal = item.itemPrice;
+        const mods = db.select({ price: modifiers.price, qty: checkItemModifiers.qty })
+          .from(checkItemModifiers)
+          .leftJoin(modifiers, eq(checkItemModifiers.modifierId, modifiers.id))
+          .where(eq(checkItemModifiers.checkItemId, item.id))
+          .all();
+        for (const m of mods) {
+          itemPriceTotal += (m.price || 0) * (m.qty || 1);
+        }
+        totalItemsValue += itemPriceTotal * billableQty;
+      }
+      if (data.discount > 0.49 * totalItemsValue) {
+        throw new Error("Discount value must not exceed 49% of the subtotal.");
+      }
+    }
+
     await db.update(checks)
       .set({
         discount: data.discount,
         discountPercent: data.discountPercent,
+        discountBy: userId,
         updatedAt: new Date().toISOString()
       })
       .where(eq(checks.id, chkId));
@@ -447,7 +507,7 @@ export class ChecksService {
   }
 
   async splitCheck(chkId: string, data: SplitCheckInput, userId: string) {
-    return db.transaction(async (tx) => {
+    return db.transaction((tx) => {
       // 1. Get original check and validate it exists and is open
       const sourceCheck = this.getCheckByIdSync(chkId, tx);
       if (!sourceCheck) {
@@ -457,7 +517,7 @@ export class ChecksService {
         throw new Error("Only open checks can be split");
       }
 
-      await this.validateWaiterAccess(sourceCheck, userId, tx);
+      this.validateWaiterAccessSync(sourceCheck, userId, tx);
 
       const userRole = tx.select({ isWaiter: roles.isWaiter })
         .from(users)
@@ -484,6 +544,18 @@ export class ChecksService {
         tableIdsToUpdate.add(sourceCheck.tableId);
       }
 
+      // Resolve source table name if missing
+      if (!sourceCheck.tableName && sourceCheck.tableId) {
+        const tableRec = tx.select().from(tables).where(eq(tables.id, sourceCheck.tableId)).limit(1).get() as any;
+        if (tableRec) {
+          sourceCheck.tableName = tableRec.name || `Table ${tableRec.number}`;
+          tx.update(checks)
+            .set({ tableName: sourceCheck.tableName, updatedAt: now.toISOString() })
+            .where(eq(checks.id, chkId))
+            .run();
+        }
+      }
+
       if (data.type === 'evenly') {
         const count = data.evenSplitCount;
         if (!count || count < 2) {
@@ -506,7 +578,8 @@ export class ChecksService {
             checkKindId: sourceCheck.checkKindId,
             tableId: sourceCheck.tableId || null,
             tableName: sourceCheck.tableName || null,
-            chkStatusId: 1, // Open
+            chkStatusId: sourceCheck.chkStatusId,
+            printCount: sourceCheck.printCount,
             guestCount: 1, // Default to 1
             cashierId: newCashierId,
             waiterId: sourceCheck.waiterId,
@@ -608,12 +681,12 @@ export class ChecksService {
 
           // Resolve target table
           let targetTableId = sourceCheck.tableId || null;
-          let targetTableName = sourceCheck.tableName || null;
+          let targetTableName = split.tableName || sourceCheck.tableName || null;
           if (split.tableId) {
             const tableRec = tx.select().from(tables).where(eq(tables.id, split.tableId)).limit(1).all();
             if (tableRec.length > 0) {
               targetTableId = tableRec[0].id;
-              targetTableName = tableRec[0].name || `Table ${tableRec[0].number}`;
+              targetTableName = split.tableName || tableRec[0].name || `Table ${tableRec[0].number}`;
               tableIdsToUpdate.add(targetTableId);
             }
           }
@@ -627,7 +700,8 @@ export class ChecksService {
             checkKindId: sourceCheck.checkKindId,
             tableId: targetTableId,
             tableName: targetTableName,
-            chkStatusId: 1, // Open
+            chkStatusId: sourceCheck.chkStatusId,
+            printCount: sourceCheck.printCount,
             guestCount: split.guestCount || 1,
             cashierId: newCashierId,
             waiterId: sourceCheck.waiterId,
@@ -748,17 +822,47 @@ export class ChecksService {
     });
   }
 
-  async verifySupervisorPin(pin: string, requiredPermission: string): Promise<boolean> {
-    const activeUsers = db.select().from(users).where(eq(users.isActive, true)).all();
+  async checkUserHasPermission(userId: string, requiredPermission: string): Promise<boolean> {
+    const matchedUser = db.select()
+      .from(users)
+      .where(and(eq(users.id, userId), eq(users.isActive, true)))
+      .get() as any;
+
+    if (!matchedUser || !matchedUser.roleId) {
+      return false;
+    }
+
+    const perms = db.select({ name: permissions.name })
+      .from(rolePermissions)
+      .innerJoin(permissions, eq(rolePermissions.permissionId, permissions.id))
+      .where(eq(rolePermissions.roleId, matchedUser.roleId))
+      .all();
+    
+    return perms.map(p => p.name).includes(requiredPermission);
+  }
+
+  async verifySupervisorPin(pin: string, requiredPermission: string, supervisorId?: string): Promise<boolean> {
     let matchedUser = null;
-    for (const u of activeUsers) {
-      if (bcrypt.compareSync(pin, u.pin)) {
-        matchedUser = u;
-        break;
+    if (supervisorId) {
+      matchedUser = db.select()
+        .from(users)
+        .where(and(eq(users.id, supervisorId), eq(users.isActive, true)))
+        .get() as any;
+    } else {
+      const activeUsers = db.select().from(users).where(eq(users.isActive, true)).all();
+      for (const u of activeUsers) {
+        if (bcrypt.compareSync(pin, u.pin)) {
+          matchedUser = u;
+          break;
+        }
       }
     }
 
     if (!matchedUser) {
+      return false;
+    }
+
+    if (!bcrypt.compareSync(pin, matchedUser.pin)) {
       return false;
     }
 
@@ -779,7 +883,7 @@ export class ChecksService {
   async printCheck(
     chkId: string,
     userId: string,
-    options: { supervisorPin?: string; printerId?: string } = {}
+    options: { supervisorPin?: string; supervisorId?: string; printerId?: string } = {}
   ) {
     const now = new Date();
     const chk = this.getCheckByIdSync(chkId);
@@ -790,20 +894,24 @@ export class ChecksService {
     if (chk.chkStatusId !== 1) {
       throw new Error("Closed check cannot be modified.");
     }
-    await this.validateWaiterAccess(chk, userId);
-
     const isPrinted = (chk.printCount || 0) > 0;
     const requiredPermission = isPrinted 
       ? 'check:reprint' 
       : 'check:print';
 
     // Validate permissions using supervisorPin if provided
+    let effectiveUserId = userId;
     if (options.supervisorPin) {
-      const isValid = await this.verifySupervisorPin(options.supervisorPin, requiredPermission);
+      const isValid = await this.verifySupervisorPin(options.supervisorPin, requiredPermission, options.supervisorId);
       if (!isValid) {
         throw new Error(`Supervisor authorization failed. Requires permission ${requiredPermission}`);
       }
+      if (options.supervisorId) {
+        effectiveUserId = options.supervisorId;
+      }
     }
+
+    await this.validateWaiterAccess(chk, effectiveUserId);
 
     // Select printer
     let targetPrinter;
@@ -848,7 +956,7 @@ export class ChecksService {
     };
   }
 
-  async transferTable(chkId: string, targetTableId: string, userId: string, supervisorPin?: string) {
+  async transferTable(chkId: string, targetTableId: string, userId: string, supervisorPin?: string, supervisorId?: string) {
     const chk = this.getCheckByIdSync(chkId);
     if (!chk) {
       throw new Error('Check not found');
@@ -858,15 +966,19 @@ export class ChecksService {
       throw new Error('Only open checks can be transferred.');
     }
 
-    await this.validateWaiterAccess(chk, userId);
-
     const requiredPermission = PERMISSIONS.CHECK_TABLE_TRANSFER;
+    let effectiveUserId = userId;
     if (supervisorPin) {
-      const isValid = await this.verifySupervisorPin(supervisorPin, requiredPermission);
+      const isValid = await this.verifySupervisorPin(supervisorPin, requiredPermission, supervisorId);
       if (!isValid) {
         throw new Error('Unauthorized: Invalid supervisor PIN or insufficient privileges.');
       }
+      if (supervisorId) {
+        effectiveUserId = supervisorId;
+      }
     }
+
+    await this.validateWaiterAccess(chk, effectiveUserId);
 
     // Load target table
     const targetTable = db.select().from(tables).where(eq(tables.id, targetTableId)).get() as any;
@@ -880,7 +992,7 @@ export class ChecksService {
     db.update(checks)
       .set({
         tableId: targetTableId,
-        tableName: targetTable.name || `T${targetTable.number}`,
+        tableName: chk.tableName,
         updatedAt: new Date().toISOString()
       })
       .where(eq(checks.id, chkId))
@@ -893,7 +1005,7 @@ export class ChecksService {
     };
   }
 
-  async transferWaiter(chkId: string, targetWaiterId: string, userId: string, supervisorPin?: string) {
+  async transferWaiter(chkId: string, targetWaiterId: string, userId: string, supervisorPin?: string, supervisorId?: string) {
     const chk = this.getCheckByIdSync(chkId);
     if (!chk) {
       throw new Error('Check not found');
@@ -904,12 +1016,18 @@ export class ChecksService {
     }
 
     const requiredPermission = PERMISSIONS.CHECK_WAITER_TRANSFER;
+    let effectiveUserId = userId;
     if (supervisorPin) {
-      const isValid = await this.verifySupervisorPin(supervisorPin, requiredPermission);
+      const isValid = await this.verifySupervisorPin(supervisorPin, requiredPermission, supervisorId);
       if (!isValid) {
         throw new Error('Unauthorized: Invalid supervisor PIN or insufficient privileges.');
       }
+      if (supervisorId) {
+        effectiveUserId = supervisorId;
+      }
     }
+
+    await this.validateWaiterAccess(chk, effectiveUserId);
 
     // Verify target waiter exists and has role isWaiter = true
     const waiterUser = db.select({
@@ -936,6 +1054,240 @@ export class ChecksService {
 
     return this.getCheckByIdSync(chkId);
   }
+
+  async updateGuestCount(chkId: string, guestCount: number, userId: string, supervisorPin?: string, supervisorId?: string) {
+    const chk = this.getCheckByIdSync(chkId);
+    if (!chk) {
+      throw new Error('Check not found');
+    }
+
+    if (chk.chkStatusId !== 1) {
+      throw new Error('Only open checks can be modified.');
+    }
+
+    if (guestCount < 1) {
+      throw new Error('Guest count must be at least 1');
+    }
+
+    const currentGuestCount = chk.guestCount || 1;
+
+    // Decreasing guest count requires permission check
+    if (guestCount < currentGuestCount) {
+      const requiredPermission = PERMISSIONS.CHECK_GUEST_DECREASE;
+      let effectiveUserId = userId;
+      if (supervisorPin) {
+        const isValid = await this.verifySupervisorPin(supervisorPin, requiredPermission, supervisorId);
+        if (!isValid) {
+          throw new Error('Unauthorized: Invalid supervisor PIN or insufficient privileges.');
+        }
+        if (supervisorId) {
+          effectiveUserId = supervisorId;
+        }
+      } else {
+        await this.validateWaiterAccess(chk, effectiveUserId);
+        
+        // Check if current user has role/permissions directly
+        const userRec = db.select({ roleId: users.roleId }).from(users).where(eq(users.id, userId)).get() as any;
+        let hasDirectPermission = false;
+        if (userRec && userRec.roleId) {
+          const permCheck = db.select({ name: permissions.name })
+            .from(rolePermissions)
+            .innerJoin(permissions, eq(rolePermissions.permissionId, permissions.id))
+            .where(and(eq(rolePermissions.roleId, userRec.roleId), eq(permissions.name, requiredPermission)))
+            .get();
+          if (permCheck) {
+            hasDirectPermission = true;
+          }
+        }
+
+        if (!hasDirectPermission) {
+          throw new Error(`Unauthorized: Requires permission ${requiredPermission}`);
+        }
+      }
+    } else {
+      await this.validateWaiterAccess(chk, userId);
+    }
+
+    db.update(checks)
+      .set({
+        guestCount,
+        updatedAt: new Date().toISOString()
+      })
+      .where(eq(checks.id, chkId))
+      .run();
+
+    return await this.recalculateCheckTotals(chkId);
+  }
+
+  async updateTableName(chkId: string, tableName: string, userId: string) {
+    const chk = this.getCheckByIdSync(chkId);
+    if (!chk) {
+      throw new Error('Check not found');
+    }
+
+    if (chk.chkStatusId !== 1) {
+      throw new Error('Only open checks can be modified.');
+    }
+
+    await this.validateWaiterAccess(chk, userId);
+
+    db.update(checks)
+      .set({
+        tableName: tableName || null,
+        updatedAt: new Date().toISOString()
+      })
+      .where(eq(checks.id, chkId))
+      .run();
+
+    return this.getCheckByIdSync(chkId);
+  }
+
+  async updateCustomerInfo(chkId: string, customerName: string | null, customerPhone: string | null, userId: string) {
+    const chk = this.getCheckByIdSync(chkId);
+    if (!chk) {
+      throw new Error('Check not found');
+    }
+
+    if (chk.chkStatusId !== 1) {
+      throw new Error('Only open checks can be modified.');
+    }
+
+    await this.validateWaiterAccess(chk, userId);
+
+    db.update(checks)
+      .set({
+        customerName: customerName || null,
+        customerPhone: customerPhone || null,
+        updatedAt: new Date().toISOString()
+      })
+      .where(eq(checks.id, chkId))
+      .run();
+
+    return this.getCheckByIdSync(chkId);
+  }
+
+  async closeCheck(chkId: string, payload: CloseCheckInput, userId: string) {
+    const chk = this.getCheckByIdSync(chkId);
+    if (!chk) {
+      throw new Error('Check not found');
+    }
+
+    if (chk.chkStatusId !== 1) {
+      throw new Error('Only open checks can be modified.');
+    }
+
+    await this.validateWaiterAccess(chk, userId);
+
+    if (payload.isComp) {
+      const isPrinted = (chk.printCount || 0) > 0;
+      const requiredPermission = isPrinted ? 'check.printed:comp' : 'check:comp';
+
+      const hasDirectPermission = await this.checkUserHasPermission(userId, requiredPermission);
+      if (!hasDirectPermission) {
+        if (!payload.supervisorPin) {
+          throw new Error('Supervisor authorization is required to complimentary this check.');
+        }
+        const isValid = await this.verifySupervisorPin(payload.supervisorPin, requiredPermission, payload.supervisorId || undefined);
+        if (!isValid) {
+          throw new Error(`Supervisor authorization failed. Requires permission ${requiredPermission}`);
+        }
+      }
+    }
+
+    const clAmount = payload.clAmount || 0;
+    const visaAmount = payload.visaAmount || 0;
+    const physicalCash = payload.cash || 0;
+    
+    const total = chk.total;
+
+    const nonCashPaid = clAmount + visaAmount;
+    const cashRequired = Math.max(0, total - nonCashPaid);
+    
+    const changeDue = Math.max(0, physicalCash - cashRequired);
+    const cashApplied = Math.max(0, physicalCash - changeDue);
+
+    let tipsCash = 0;
+    let tipsVisa = 0;
+    const tipsValue = payload.tips || 0;
+    if (tipsValue > 0) {
+      if (payload.paymentMethod === 'visa') {
+        tipsVisa = tipsValue;
+      } else {
+        tipsCash = tipsValue;
+      }
+    }
+
+    let targetStatusId = 2; // Cash default
+    if (payload.chkStut) {
+      targetStatusId = payload.chkStut;
+    } else {
+      if (payload.paymentMethod === 'visa') {
+        targetStatusId = 3; // Visa
+      } else if (payload.paymentMethod === 'cl') {
+        targetStatusId = 4; // Owner CL
+      } else if (payload.paymentMethod === 'mixed') {
+        targetStatusId = 6; // Mixed
+      }
+    }
+
+    const updatedValues: any = {
+      cash: cashApplied,
+      visa: visaAmount,
+      credit: clAmount,
+      paidCash: physicalCash,
+      tipsCash: tipsCash,
+      tipsVisa: tipsVisa,
+      chkStatusId: targetStatusId,
+      customerId: payload.customerId || null,
+      customerName: payload.customerName || null,
+      paymentNote: payload.clNote || null,
+      visaNumber: payload.visaNo || null,
+      closeTime: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    if (payload.tax !== undefined) updatedValues.tax = payload.tax;
+    if (payload.service !== undefined) updatedValues.serviceCharge = payload.service;
+    if (payload.discountAmount !== undefined) updatedValues.discount = payload.discountAmount;
+    if (payload.discountPrsn !== undefined) updatedValues.discountPercent = payload.discountPrsn;
+    if (payload.discountAmount && payload.discountAmount > 0) {
+      updatedValues.discountBy = userId;
+    }
+
+    if (targetStatusId === 7) {
+      updatedValues.entAmount = total;
+      updatedValues.cash = 0;
+      updatedValues.visa = 0;
+      updatedValues.credit = 0;
+      updatedValues.paidCash = 0;
+      updatedValues.total = 0;
+      updatedValues.discount = 0;
+      updatedValues.discountPercent = 0;
+      updatedValues.discountBy = null;
+    }
+
+    if (targetStatusId === 8 || targetStatusId === 11) {
+      updatedValues.tax = 0;
+      updatedValues.serviceCharge = 0;
+      updatedValues.discount = 0;
+      updatedValues.discountPercent = 0;
+      updatedValues.discountBy = null;
+      updatedValues.total = chk.net;
+      updatedValues.credit = chk.net;
+      updatedValues.entAmount = 0;
+      updatedValues.cash = 0;
+      updatedValues.visa = 0;
+      updatedValues.paidCash = 0;
+    }
+
+    db.update(checks)
+      .set(updatedValues)
+      .where(eq(checks.id, chkId))
+      .run();
+
+    return this.getCheckByIdSync(chkId);
+  }
 }
+
 
 export const checksService = new ChecksService();

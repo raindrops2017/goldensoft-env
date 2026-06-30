@@ -41,7 +41,8 @@ export const PERMISSIONS = {
   WORKDAY_CLOSE: 'workday:close',
   TABLES_EDIT: 'tables:edit',
   CHECK_WAITER_TRANSFER: 'check.waiter:transfer',
-  HISTORICAL_CHECKS_VIEW: 'historical_checks:view'
+  HISTORICAL_CHECKS_VIEW: 'historical_checks:view',
+  CHECK_GUEST_DECREASE: 'check.guest:decrease'
 } as const;
 
 export type Permission = typeof PERMISSIONS[keyof typeof PERMISSIONS];
@@ -89,5 +90,6 @@ export const permissionsList = [
   { name: PERMISSIONS.WORKDAY_CLOSE, description: 'Close workdays' },
   { name: PERMISSIONS.TABLES_EDIT, description: 'Manage sections and table layouts' },
   { name: PERMISSIONS.CHECK_WAITER_TRANSFER, description: 'Transfer checks to other waiters' },
-  { name: PERMISSIONS.HISTORICAL_CHECKS_VIEW, description: 'View historical checks' }
+  { name: PERMISSIONS.HISTORICAL_CHECKS_VIEW, description: 'View historical checks' },
+  { name: PERMISSIONS.CHECK_GUEST_DECREASE, description: 'Decrease guest count on checks' }
 ];

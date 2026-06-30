@@ -13,6 +13,8 @@ interface FloorMobileGridProps {
   >;
   tableIconMap: Record<string, any>;
   handleTableClick: (table: Table) => void;
+  openChecks?: any[];
+  businessDate?: string;
 }
 
 export function FloorMobileGrid({
@@ -21,7 +23,9 @@ export function FloorMobileGrid({
   getTableStatus,
   statusConfig,
   tableIconMap,
-  handleTableClick
+  handleTableClick,
+  openChecks = [],
+  businessDate
 }: FloorMobileGridProps) {
   if (!activeSection.tables || activeSection.tables.length === 0) {
     return (
@@ -46,7 +50,7 @@ export function FloorMobileGrid({
               <button
                 key={table.id}
                 onClick={() => handleTableClick(table)}
-                className={`h-24 rounded-2xl border-2 flex items-center justify-between px-4 transition-all duration-75 active:scale-95 text-left select-none relative ${
+                className={`h-24 rounded-2xl border-2 flex items-center justify-between px-4 transition-all duration-75 active:scale-95 text-left select-none relative overflow-hidden ${
                   tableLock
                     ? 'border-red-500/40 bg-red-50 dark:bg-red-950/20 cursor-not-allowed opacity-60'
                     : table.belongsToCurrentUser === false
@@ -76,6 +80,21 @@ export function FloorMobileGrid({
                     ></span>
                   </span>
                 )}
+
+                {/* Floating Custom Check Name Badge */}
+                {(() => {
+                  const tableChecks = openChecks ? openChecks.filter(
+                    (c) => c.tableId === table.id && c.chkDate === businessDate
+                  ) : [];
+                  if (tableChecks.length === 1 && tableChecks[0].tableName) {
+                    return (
+                      <div className="absolute top-0 left-0 bg-amber-500 dark:bg-amber-600 text-white text-[11px] sm:text-[12px] font-black px-2.5 py-1 rounded-br shadow-sm z-20 max-w-[85%] truncate select-none border-b border-r border-white/20 uppercase tracking-wider">
+                        {tableChecks[0].tableName}
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
 
                 <div className="flex flex-col justify-center select-none pr-2 max-w-[65%]">
                   <span className="font-extrabold text-sm sm:text-base text-slate-800 dark:text-white truncate">

@@ -99,21 +99,26 @@ export class AuthController {
    */
   async getWaiters(req: Request, res: Response) {
     try {
-      const { db } = await import('../../db');
-      const { users, roles } = await import('../../db/schema');
-      const { eq, and } = await import('drizzle-orm');
-      const waitersList = db.select({
-        id: users.id,
-        username: users.username,
-      })
-      .from(users)
-      .innerJoin(roles, eq(users.roleId, roles.id))
-      .where(and(eq(users.isActive, true), eq(roles.isWaiter, true)))
-      .all();
-
+      const waitersList = authService.getWaiters();
       res.json({ success: true, data: waitersList });
     } catch (error: any) {
       console.error('Get waiters error:', error);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  }
+
+  async getPermittedUsers(req: Request, res: Response) {
+    try {
+      const { permission } = req.query;
+      if (!permission || typeof permission !== 'string') {
+        res.status(400).json({ success: false, error: 'Permission query parameter is required' });
+        return;
+      }
+
+      const usersList = authService.getPermittedUsers(permission);
+      res.json({ success: true, data: usersList });
+    } catch (error: any) {
+      console.error('Get permitted users error:', error);
       res.status(500).json({ success: false, error: error.message });
     }
   }

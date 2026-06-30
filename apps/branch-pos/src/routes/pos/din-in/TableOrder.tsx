@@ -29,7 +29,7 @@ import { SupervisorOverrideDialog } from "@/components/pos-ordering/SupervisorOv
 export default function TableOrder() {
   const { tableNo } = useParams<{ tableNo: string }>();
   const user = useAuthStore(state => state.user);
-  const { acquireLock, releaseLock, sendKdsOrder, updateTableStatus } = useLanSocket();
+  const { acquireLock, releaseLock, sendKdsOrder, updateTableStatus, logAction } = useLanSocket();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
@@ -51,6 +51,12 @@ export default function TableOrder() {
   const [supervisorRequiredPerm, setSupervisorRequiredPerm] = useState<string>("check:print");
   const [selectedParentItem, setSelectedParentItem] = useState<MenuItem | null>(null);
   const [splitDialogOpen, setSplitDialogOpen] = useState(false);
+  const [supervisorAction, setSupervisorAction] = useState<((pin: string, supervisorId: string, supervisorUsername: string) => Promise<void>) | null>(null);
+  const [supervisorLoading, setSupervisorLoading] = useState(false);
+  const [activeDiscountSupervisor, setActiveDiscountSupervisor] = useState<{ pin?: string, id?: string, name?: string } | null>(null);
+  const [activeSplitSupervisor, setActiveSplitSupervisor] = useState<{ pin?: string, id?: string, name?: string } | null>(null);
+  const [localGuestCount, setLocalGuestCount] = useState<number | null>(null);
+  const [localTableName, setLocalTableName] = useState<string | null>(null);
 
   /* ── Queries ── */
   const checksApi = useChecksApi();
@@ -136,6 +142,7 @@ export default function TableOrder() {
     setAppliedDiscount,
     setDiscountPercent,
     discountPercent,
+    deliveryCharge,
   } = session;
 
   /* ── Derived ── */
@@ -169,11 +176,12 @@ export default function TableOrder() {
     formattedTime: new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }),
     checkNo: fullCheck?.chkNo ?? "N/A",
     tableNo,
-    tableName: fullCheck?.tableName ?? `Table ${tableNo}`,
-    guestNo: fullCheck?.guestCount ?? 1,
-    waiterName: user?.username ?? "",
-    cashierName: user?.username ?? "",
+    tableName: fullCheck?.tableName ?? localTableName ?? `Table ${tableNo}`,
+    guestNo: fullCheck?.guestCount ?? localGuestCount ?? 1,
+    waiterName: fullCheck?.waiterName || "",
+    cashierName: fullCheck?.cashierName || user?.username || "",
     printCount: fullCheck?.printCount ?? 0,
+    waiterId: fullCheck?.waiterId,
   };
 
   const checkPrinted = (fullCheck?.printCount ?? 0) > 0;
@@ -193,20 +201,32 @@ export default function TableOrder() {
     checkPrinted,
     onVoidItem: (itemId: string, voidQty: number, reasonId: number) => {
        if (!fullCheck?.id) return;
-       handleVoidItem(fullCheck.id, itemId, voidQty, reasonId);
+       if (itemId.startsWith('temp-')) {
+         handleVoidItem(fullCheck.id, itemId, voidQty, reasonId);
+         return;
+       }
+       const isPrinted = (fullCheck.printCount || 0) > 0;
+       const requiredPermission = isPrinted ? PERMISSIONS.CHECK_ITEM_PRINTED_VOID : PERMISSIONS.CHECK_ITEM_VOID;
+       runWithPermission(requiredPermission, async (pin, svId, svName) => {
+         await handleVoidItem(fullCheck.id, itemId, voidQty, reasonId, pin, svId, svName);
+       });
     },
     onRemoveItem: (itemId: string) => {
        handleVoidItem('temp', itemId, 1, 1);
     },
     onChangeQty: (itemId: string, delta: number) => {
-       const item = localCart.find(i => i.id === itemId || i.menuItemId === itemId);
-       if (item) {
-          session.handleChangeQty(item.id!, item.qty + delta);
-       }
+        const item = localCart.find(i => i.id === itemId || i.menuItemId === itemId);
+        if (item) {
+           session.handleChangeQty(item.id!, item.qty + delta);
+        }
     },
-    onCompItem: (itemId: string) => {
+    onCompItem: (itemId: string, qty: number = 1) => {
        if (!fullCheck?.id) return;
-       handleEntItem(fullCheck.id, itemId, 1);
+       const isPrinted = (fullCheck.printCount || 0) > 0;
+       const requiredPermission = isPrinted ? PERMISSIONS.CHECK_PRINTED_ITEM_COMP : PERMISSIONS.CHECK_ITEM_COMP;
+       runWithPermission(requiredPermission, async (pin, svId, svName) => {
+         await handleEntItem(fullCheck.id, itemId, qty, pin, svId, svName);
+       });
     },
     onUpdateNotes: (itemId: string, notes: string) => {
       handleUpdateNotes(itemId, notes);
@@ -227,18 +247,21 @@ export default function TableOrder() {
 
   function handleConfirmVoid(reasonId: number) {
     if (!fullCheck?.id) return;
-    checksApi.voidCheck.mutate({ chkId: fullCheck.id, reasonId: reasonId.toString() }, {
-      onSuccess: () => {
-        setIsVoidDialogOpen(false);
-        navigate("/dine-in");
-      }
+    const isClosed = fullCheck.chkStatusId !== 1;
+    const requiredPermission = isClosed ? PERMISSIONS.CHECK_CLOSED_VOID : PERMISSIONS.CHECK_VOID;
+
+    runWithPermission(requiredPermission, async (pin, svId, svName) => {
+      await checksApi.voidCheck.mutateAsync({ chkId: fullCheck.id, reasonId: reasonId.toString(), supervisorPin: pin, supervisorId: svId });
+      logAction('CHECK_VOID', { checkId: fullCheck.id, reasonId }, { tableId: activeTable?.id, tableNo, checkId: fullCheck.id, permitterId: svId, permitterName: svName });
+      setIsVoidDialogOpen(false);
+      navigate("/dine-in");
     });
   }
 
   const handleSend = async () => {
     const unsentItems = localCart.filter(i => i.id?.startsWith('temp-'));
     if (unsentItems.length === 0) {
-      toast.error("No items to send");
+      navigate("/dine-in");
       return;
     }
     
@@ -247,8 +270,8 @@ export default function TableOrder() {
       checksApi.createCheck.mutate({
         checkKindId: 1, // Dining is 1
         tableId: activeTable?.id || undefined,
-        tableName: activeTable?.name || `Table ${tableNo}`,
-        guestCount: 1,
+        tableName: localTableName || undefined,
+        guestCount: localGuestCount || 1,
       }, {
         onSuccess: async (newCheck) => {
            // Add local items
@@ -313,46 +336,62 @@ export default function TableOrder() {
 
 
 
-  const handlePrint = async (supervisorPinInput?: string | React.MouseEvent) => {
-    const supervisorPin = typeof supervisorPinInput === "string" ? supervisorPinInput : undefined;
+  const runWithPermission = (requiredPermission: string, action: (pin?: string, supervisorId?: string, supervisorUsername?: string) => Promise<void>) => {
+    if (hasPermission(requiredPermission)) {
+      action();
+    } else {
+      setSupervisorRequiredPerm(requiredPermission);
+      setSupervisorError(null);
+      setSupervisorAction(() => async (pin: string, supervisorId: string, supervisorUsername: string) => {
+        await action(pin, supervisorId, supervisorUsername);
+      });
+      setSupervisorOpen(true);
+    }
+  };
+
+  const handleSupervisorSubmit = async (pin: string, supervisorId: string, supervisorUsername: string) => {
+    setSupervisorError(null);
+    setSupervisorLoading(true);
+    try {
+      if (supervisorAction) {
+        await supervisorAction(pin, supervisorId, supervisorUsername);
+      }
+      setSupervisorOpen(false);
+      setSupervisorAction(null);
+    } catch (err: any) {
+      setSupervisorError(err.response?.data?.error || err.message || "Authorization failed");
+    } finally {
+      setSupervisorLoading(false);
+    }
+  };
+
+  const handlePrint = async () => {
     if (!fullCheck) return;
 
     const isPrinted = (fullCheck.printCount || 0) > 0;
     const requiredPermission = isPrinted ? PERMISSIONS.CHECK_REPRINT : PERMISSIONS.CHECK_PRINT;
-    const userHasPerm = hasPermission(requiredPermission);
 
-    // Check if user has permission or supervisor PIN is provided
-    if (!userHasPerm && !supervisorPin) {
-      setSupervisorRequiredPerm(requiredPermission);
-      setSupervisorError(null);
-      setSupervisorOpen(true);
-      return;
-    }
+    runWithPermission(requiredPermission, async (pin, svId, svName) => {
+      setIsPrinting(true);
+      try {
+        await checksApi.printCheck.mutateAsync({
+          chkId: fullCheck.id,
+          supervisorPin: pin,
+          supervisorId: svId,
+        });
 
-    setIsPrinting(true);
-    setSupervisorError(null);
-    try {
-      await checksApi.printCheck.mutateAsync({
-        chkId: fullCheck.id,
-        supervisorPin,
-      });
-
-      toast.success("Receipt printed successfully!");
-      setSupervisorOpen(false);
-      queryClient.invalidateQueries({ queryKey: ["openChecks"] });
-      queryClient.invalidateQueries({ queryKey: ["check", fullCheck.id] });
-      queryClient.invalidateQueries({ queryKey: ["tableSections"] });
-      navigate("/dine-in");
-    } catch (err: any) {
-      const errMsg = err.response?.data?.error || err.message || "Failed to print check";
-      if (supervisorPin) {
-        setSupervisorError(errMsg);
-      } else {
-        toast.error(errMsg);
+        logAction('CHECK_PRINT', { checkId: fullCheck.id, isReprint: isPrinted, supervisorPinUsed: !!pin }, { tableId: activeTable?.id, tableNo, checkId: fullCheck.id, permitterId: svId, permitterName: svName });
+        toast.success("Receipt printed successfully!");
+        queryClient.invalidateQueries({ queryKey: ["openChecks"] });
+        queryClient.invalidateQueries({ queryKey: ["check", fullCheck.id] });
+        queryClient.invalidateQueries({ queryKey: ["tableSections"] });
+        navigate("/dine-in");
+      } catch (err: any) {
+        throw err;
+      } finally {
+        setIsPrinting(false);
       }
-    } finally {
-      setIsPrinting(false);
-    }
+    });
   };
 
   return (
@@ -457,14 +496,51 @@ export default function TableOrder() {
                 isNewCheck={!fullCheck}
                 hasItems={localCart.length > 0}
                 onSend={handleSend}
-                onDiscount={() => setDiscountOpen(true)}
+                onDiscount={() => {
+                  if (!fullCheck?.id) {
+                    setDiscountOpen(true);
+                    return;
+                  }
+                  const isPrinted = (fullCheck.printCount || 0) > 0;
+                  const requiredPermission = isPrinted ? PERMISSIONS.DISCOUNT_PRINTED_APPLY : PERMISSIONS.DISCOUNT_APPLY;
+                  runWithPermission(requiredPermission, async (pin, svId, svName) => {
+                    setActiveDiscountSupervisor({ pin, id: svId, name: svName });
+                    setDiscountOpen(true);
+                  });
+                }}
                 onPrint={() => handlePrint()}
-                onPay={() => setPayDrawerOpen(true)}
+                onPay={() => runWithPermission(PERMISSIONS.CHECK_CLOSE, async () => { setPayDrawerOpen(true); })}
                 onVoid={handleVoidCheck}
-                onSplit={() => setSplitDialogOpen(true)}
+                onSplit={() => {
+                  if (!fullCheck) return;
+
+                  // Prevent splitting if there's 1 or less billable items
+                  const activeItems = fullCheck.items || [];
+                  const totalBillableQty = activeItems.reduce((sum: number, item: any) => {
+                    const qty = Number(item.qty) || 0;
+                    const voidQty = Number(item.voidQty) || 0;
+                    const entQty = Number(item.entQty) || 0;
+                    const billable = qty - voidQty - entQty;
+                    return sum + Math.max(0, billable);
+                  }, 0);
+
+                  if (totalBillableQty <= 1) {
+                    toast.error("Cannot split a check containing 1 or less billable items.");
+                    return;
+                  }
+
+                  const isPrinted = (fullCheck.printCount || 0) > 0;
+                  const requiredPermission = isPrinted ? PERMISSIONS.CHECK_PRINTED_SEPERATE : PERMISSIONS.CHECK_SEPERATE;
+                  runWithPermission(requiredPermission, async (pin, svId, svName) => {
+                    setActiveSplitSupervisor({ pin, id: svId, name: svName });
+                    setSplitDialogOpen(true);
+                  });
+                }}
                 checkId={fullCheck?.id}
                 mode="dine-in"
                 mood="din-in"
+                onGuestCountChange={setLocalGuestCount}
+                onTableNameChange={setLocalTableName}
               />
             </div>
           </div>
@@ -495,24 +571,41 @@ export default function TableOrder() {
 
       <DiscountDialog
         open={discountOpen}
-        onClose={() => setDiscountOpen(false)}
+        onClose={() => {
+          setDiscountOpen(false);
+          setActiveDiscountSupervisor(null);
+        }}
         options={options}
         subtotal={subtotal}
         currentDiscount={appliedDiscount}
         currentDiscountPercent={discountPercent}
         onApply={async (value: number, percent: number) => {
-          setAppliedDiscount(value);
-          setDiscountPercent(percent);
-          setDiscountOpen(false);
           if (fullCheck?.id) {
-             await checksApi.updateCheckDiscount.mutateAsync({
-               chkId: fullCheck.id,
-               data: { discount: value, discountPercent: percent }
-             });
-             queryClient.invalidateQueries({ queryKey: ["check", fullCheck.id] });
+            await checksApi.updateCheckDiscount.mutateAsync({
+              chkId: fullCheck.id,
+              data: { 
+                discount: value, 
+                discountPercent: percent, 
+                supervisorPin: activeDiscountSupervisor?.pin, 
+                supervisorId: activeDiscountSupervisor?.id 
+              }
+            });
+            setAppliedDiscount(value);
+            setDiscountPercent(percent);
+            setDiscountOpen(false);
+            setActiveDiscountSupervisor(null);
+            logAction('CHECK_DISCOUNT_UPDATE', { checkId: fullCheck.id, discount: value, discountPercent: percent }, { tableId: activeTable?.id, tableNo, checkId: fullCheck.id, permitterId: activeDiscountSupervisor?.id, permitterName: activeDiscountSupervisor?.name });
+            queryClient.invalidateQueries({ queryKey: ["check", fullCheck.id] });
+          } else {
+            setAppliedDiscount(value);
+            setDiscountPercent(percent);
+            setDiscountOpen(false);
           }
         }}
-        onCancel={() => setDiscountOpen(false)}
+        onCancel={() => {
+          setDiscountOpen(false);
+          setActiveDiscountSupervisor(null);
+        }}
       />
 
       <PaymentDrawer
@@ -528,12 +621,51 @@ export default function TableOrder() {
             quantity: item.qty || 1,
             unitPrice: (item.itemPrice || 0) + modifierTotal,
             note: item.notes || undefined,
+            entQty: item.entQty || 0,
           };
         })}
         tax={tax}
-        onConfirm={() => {
-           toast("Payment handling to be implemented");
-           setPayDrawerOpen(false);
+        serviceCharge={serviceCharge}
+        deliveryCharge={deliveryCharge}
+        discountAmount={appliedDiscount}
+        discountPrsn={discountPercent}
+        printCount={fullCheck?.printCount ?? 0}
+        onConfirm={async (data) => {
+          if (!fullCheck) return;
+          try {
+            await checksApi.closeCheck.mutateAsync({
+              chkId: fullCheck.id,
+              data
+            });
+            toast.success("Payment processed and check closed successfully");
+            logAction(
+              'CHECK_CLOSE',
+              {
+                checkId: fullCheck.id,
+                paymentMethod: data.paymentMethod,
+                cash: data.cash,
+                visaAmount: data.visaAmount,
+                clAmount: data.clAmount,
+                tips: data.tips,
+                isComp: data.isComp,
+                discountAmount: data.discountAmount,
+                discountPrsn: data.discountPrsn,
+                customerId: data.customerId,
+                customerName: data.customerName,
+              },
+              {
+                tableId: activeTable?.id,
+                tableNo,
+                checkId: fullCheck.id,
+              }
+            );
+            queryClient.invalidateQueries({ queryKey: ["tableSections"] });
+            queryClient.invalidateQueries({ queryKey: ["openChecks"] });
+            setPayDrawerOpen(false);
+            navigate("/dine-in");
+          } catch (err: any) {
+            toast.error(err.response?.data?.error || err.message || "Failed to process payment");
+          }
         }}
       />
 
@@ -548,32 +680,46 @@ export default function TableOrder() {
       {splitDialogOpen && fullCheck && (
         <SplitCheckDialog
           open={splitDialogOpen}
-          onClose={() => setSplitDialogOpen(false)}
+          onClose={() => {
+            setSplitDialogOpen(false);
+            setActiveSplitSupervisor(null);
+          }}
           check={fullCheck}
-          onSplitConfirm={async (payload) => {
-            try {
-              await checksApi.splitCheck.mutateAsync({
-                chkId: fullCheck.id,
-                data: payload as any
-              });
-              toast.success("Check split successfully!");
-              setSplitDialogOpen(false);
-              queryClient.invalidateQueries({ queryKey: ["openChecks"] });
-              queryClient.invalidateQueries({ queryKey: ["checks"] });
-              queryClient.invalidateQueries({ queryKey: ["check", fullCheck.id] });
-              navigate("/dine-in");
-            } catch (err: any) {
-              toast.error(err.response?.data?.error || err.message || "Failed to split check");
-            }
+          onSplitConfirm={async (payload: any) => {
+            await checksApi.splitCheck.mutateAsync({
+              chkId: fullCheck.id,
+              data: {
+                ...(payload as any),
+                supervisorPin: activeSplitSupervisor?.pin,
+                supervisorId: activeSplitSupervisor?.id
+              }
+            });
+            logAction('CHECK_SPLIT', { checkId: fullCheck.id, payload }, {
+              tableId: activeTable?.id,
+              tableNo,
+              checkId: fullCheck.id,
+              permitterId: activeSplitSupervisor?.id,
+              permitterName: activeSplitSupervisor?.name
+            });
+            toast.success("Check split successfully!");
+            setSplitDialogOpen(false);
+            setActiveSplitSupervisor(null);
+            queryClient.invalidateQueries({ queryKey: ["openChecks"] });
+            queryClient.invalidateQueries({ queryKey: ["checks"] });
+            queryClient.invalidateQueries({ queryKey: ["check", fullCheck.id] });
+            navigate("/dine-in");
           }}
         />
       )}
 
       <SupervisorOverrideDialog
         open={supervisorOpen}
-        onClose={() => setSupervisorOpen(false)}
-        onSubmit={(pin) => handlePrint(pin)}
-        isLoading={isPrinting}
+        onClose={() => {
+          setSupervisorOpen(false);
+          setSupervisorAction(null);
+        }}
+        onSubmit={handleSupervisorSubmit}
+        isLoading={supervisorLoading}
         error={supervisorError}
         permissionRequired={supervisorRequiredPerm}
       />

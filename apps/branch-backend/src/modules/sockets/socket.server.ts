@@ -11,6 +11,9 @@ import { lockManager } from './lock-manager';
 import { db } from '../../db';
 import { users } from '../../db/schema';
 import { eq } from 'drizzle-orm';
+import { randomUUID } from 'crypto';
+import { logsDb } from '../../db/logsDb';
+import { screenLogs } from '../../db/logsSchema';
 
 type LanSocket = Socket<
   LanClientToServerEvents,
@@ -179,7 +182,38 @@ export function initializeSocketServer(httpServer: HttpServer) {
       }
     });
 
-    // 6. Handle socket disconnect (release locks automatically)
+    // 6. Handle screen/action logs creation from clients
+    socket.on('pos:log:create', (payload, callback) => {
+      try {
+        const logId = (payload as any).id || randomUUID();
+        logsDb.insert(screenLogs).values({
+          id: logId,
+          userId: payload.userId,
+          username: payload.username,
+          shiftId: payload.shiftId || null,
+          businessDate: payload.businessDate,
+          actionType: payload.actionType,
+          tableId: payload.tableId || null,
+          tableNo: payload.tableNo || null,
+          checkId: payload.checkId || null,
+          permitterId: payload.permitterId || null,
+          permitterName: payload.permitterName || null,
+          details: JSON.stringify(payload.details),
+          synced: false,
+          createdAt: new Date().toISOString(),
+        }).run();
+
+        callback({ success: true });
+      } catch (err: any) {
+        console.error('❌ Failed to save screen log:', err);
+        callback({
+          success: false,
+          error: err.message || 'Failed to save screen log',
+        });
+      }
+    });
+
+    // 7. Handle socket disconnect (release locks automatically)
     socket.on('disconnect', () => {
       console.log(`🔌 Socket disconnected: ${socket.id} (User: ${username})`);
       const releasedLocks = lockManager.releaseLocksForSocket(socket.id);

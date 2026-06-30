@@ -15,12 +15,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Search, Loader2, ListOrdered, History, Calendar as CalendarIcon, Filter } from 'lucide-react';
+import { Search, Loader2, ListOrdered, Calendar as CalendarIcon, Filter } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useNavigate } from 'react-router-dom';
+import { useTableSections } from '@/hooks/useTables';
 
 interface HistoricalChecksModalProps {
   isOpen: boolean;
@@ -29,6 +30,19 @@ interface HistoricalChecksModalProps {
 
 export function HistoricalChecksModal({ isOpen, onClose }: HistoricalChecksModalProps) {
   const navigate = useNavigate();
+
+  const { data: sections = [] } = useTableSections();
+  const allTables = sections.flatMap(s => s.tables || []);
+  const getTableNameById = (tableId: string | null | undefined) => {
+    if (!tableId) return 'N/A';
+    const found = allTables.find(t => t.id === tableId);
+    return found ? (found.name || `T${found.number}`) : `T${tableId}`;
+  };
+  const getTableNumberById = (tableId: string | null | undefined) => {
+    if (!tableId) return '';
+    const found = allTables.find(t => t.id === tableId);
+    return found ? String(found.number) : '';
+  };
 
   // Filter state
   const [status, setStatus] = useState<string>('all');
@@ -72,9 +86,25 @@ export function HistoricalChecksModal({ isOpen, onClose }: HistoricalChecksModal
       case 1:
         return <span className="bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400 px-2.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider">Open</span>;
       case 2:
-        return <span className="bg-slate-100 text-slate-700 dark:bg-white/10 dark:text-slate-300 px-2.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider">Closed</span>;
+        return <span className="bg-slate-100 text-slate-700 dark:bg-white/10 dark:text-slate-350 px-2.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider">Cash</span>;
       case 3:
+        return <span className="bg-purple-100 text-purple-700 dark:bg-purple-500/20 dark:text-purple-400 px-2.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider">Visa</span>;
+      case 4:
+        return <span className="bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400 px-2.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider">Owner CL</span>;
+      case 5:
         return <span className="bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400 px-2.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider">Voided</span>;
+      case 6:
+        return <span className="bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-400 px-2.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider">Mixed</span>;
+      case 7:
+        return <span className="bg-orange-100 text-orange-700 dark:bg-orange-500/20 dark:text-orange-400 px-2.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider">Comp</span>;
+      case 8:
+        return <span className="bg-teal-100 text-teal-700 dark:bg-teal-500/20 dark:text-teal-400 px-2.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider">Officer</span>;
+      case 9:
+        return <span className="bg-gray-100 text-gray-750 dark:bg-white/5 dark:text-gray-400 px-2.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider">Merged</span>;
+      case 10:
+        return <span className="bg-pink-100 text-pink-700 dark:bg-pink-500/20 dark:text-pink-400 px-2.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider">Staff CL</span>;
+      case 11:
+        return <span className="bg-cyan-100 text-cyan-700 dark:bg-cyan-500/20 dark:text-cyan-400 px-2.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider">Food Test</span>;
       default:
         return <span className="bg-slate-100 text-slate-700 px-2.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider">Unknown</span>;
     }
@@ -128,7 +158,6 @@ export function HistoricalChecksModal({ isOpen, onClose }: HistoricalChecksModal
                     mode="single"
                     selected={dateFrom ? new Date(dateFrom) : undefined}
                     onSelect={(d) => setDateFrom(d ? format(d, "yyyy-MM-dd") : "")}
-                    initialFocus
                   />
                 </PopoverContent>
               </Popover>
@@ -154,7 +183,6 @@ export function HistoricalChecksModal({ isOpen, onClose }: HistoricalChecksModal
                     mode="single"
                     selected={dateTo ? new Date(dateTo) : undefined}
                     onSelect={(d) => setDateTo(d ? format(d, "yyyy-MM-dd") : "")}
-                    initialFocus
                   />
                 </PopoverContent>
               </Popover>
@@ -235,6 +263,7 @@ export function HistoricalChecksModal({ isOpen, onClose }: HistoricalChecksModal
                   <th className="px-6 py-4 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Date</th>
                   <th className="px-6 py-4 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Time</th>
                   <th className="px-6 py-4 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Table No</th>
+                  <th className="px-6 py-4 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Check Name</th>
                   <th className="px-6 py-4 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Guests</th>
                   <th className="px-6 py-4 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Status</th>
                   <th className="px-6 py-4 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-right">Amount</th>
@@ -244,13 +273,13 @@ export function HistoricalChecksModal({ isOpen, onClose }: HistoricalChecksModal
               <tbody>
                 {isLoading && !checks ? (
                   <tr>
-                    <td colSpan={8} className="p-8 text-center">
+                    <td colSpan={9} className="p-8 text-center">
                       <Loader2 className="w-8 h-8 text-indigo-500 animate-spin mx-auto" />
                     </td>
                   </tr>
                 ) : !checks || checks.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="p-16 text-center text-slate-500 dark:text-slate-400">
+                    <td colSpan={9} className="p-16 text-center text-slate-500 dark:text-slate-400">
                       <Filter className="w-12 h-12 mx-auto mb-3 opacity-20" />
                       <p className="text-lg font-bold">No checks found</p>
                       <p className="text-sm">Try adjusting your filters</p>
@@ -272,7 +301,10 @@ export function HistoricalChecksModal({ isOpen, onClose }: HistoricalChecksModal
                         {new Date(check.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                       </td>
                       <td className="px-6 py-4 font-bold text-slate-700 dark:text-slate-300">
-                        {check.tableName || `T${check.tableId}`}
+                        {getTableNameById(check.tableId)}
+                      </td>
+                      <td className="px-6 py-4 text-sm font-medium text-slate-600 dark:text-slate-350 truncate max-w-[150px]" title={check.tableName || '—'}>
+                        {check.tableName || '—'}
                       </td>
                       <td className="px-6 py-4 text-sm font-medium text-slate-600 dark:text-slate-400">
                         {check.guestCount}
@@ -287,11 +319,8 @@ export function HistoricalChecksModal({ isOpen, onClose }: HistoricalChecksModal
                         <Button
                           onClick={() => {
                             onClose();
-                            // If table is known, navigate to table with checkNo. Otherwise, might need a generic review page.
-                            // The URL is usually /table/:tableNumber?chkNo=:chkNo
-                            // If it's a closed check, we might want to just view it in a read-only mode, but for now we'll route to the table.
-                            // Since we have tableName (e.g. "T1"), we can extract the number or use it directly if route allows.
-                            const tableIdentifier = check.tableName ? check.tableName.replace('T', '') : check.tableId;
+                            const tableNumber = getTableNumberById(check.tableId);
+                            const tableIdentifier = tableNumber || check.tableId;
                             navigate(`/table/${tableIdentifier}?chkNo=${check.chkNo}`);
                           }}
                           className="h-10 px-4 rounded-xl font-bold bg-indigo-50 text-indigo-600 hover:bg-indigo-100 dark:bg-indigo-500/10 dark:text-indigo-400 dark:hover:bg-indigo-500/20 active:scale-95 transition-transform"

@@ -154,3 +154,17 @@ All UI elements (buttons, pages, components) and backend routes must strictly en
 - Frontend: Use the `<HasPermission>` component wrapper or the `usePermissions()` hook to hide or disable UI elements that require specific permissions.
 - Backend: Protect Express routes using the `requirePermission([PERMISSIONS.X])` middleware directly after the `requireAuth` middleware.
 - Shared: Always use the exact permission keys defined in the `PERMISSIONS` object from `@goldensoft/core-schemas` (e.g., `PERMISSIONS.CHECK_VOID`). Never use magic strings.
+
+13. CHECK KINDS (CRITICAL)
+
+Always use these exact ID mappings for check kinds (sometimes referred to as checkKindId or itemKind):
+- 1: Dine in
+- 2: Delivery
+- 3: Take away
+
+14. AUDIT & ACTION LOGGING (CRITICAL)
+
+All significant system mutations, POS checkout flow events, and security or configuration actions must strictly write audit logs to the global action log (`screen_logs` database) via the LAN Socket `logAction` function (or equivalent backend logging utilities).
+- Ensure `logAction` is called upon successful execution of operations (e.g., checkout closure, voiding items, printing receipts, applying manual discounts, splitting checks, and shift management).
+- Action names must be strictly standardized (e.g., `CHECK_CLOSE`, `CHECK_VOID`, `CHECK_PRINT`, `CHECK_DISCOUNT_UPDATE`, `CHECK_SPLIT`, `CART_ADD_ITEM`, `CART_QTY_UPDATE`, `CART_ITEM_REMOVE`, `CART_ITEM_COMP`).
+- Pass detailed context including user, check, table, and specific action payload parameters to maintain a reliable audit trail.

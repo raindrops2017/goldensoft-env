@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { useChecksApi } from "../api/useChecksApi";
 import { calculateCheckTotals } from "@goldensoft/core-schemas";
 import { safeRandomUUID } from "../../lib/utils";
+import { useLanSocket } from "../useLanSocket";
 import type { 
   CheckWithItems, 
   CheckItem, 
@@ -22,9 +23,22 @@ export function useOrderSession({
   mode,
   initialCheck,
   options,
+  tableId,
+  tableName,
 }: OrderSessionConfig) {
 
   const checksApi = useChecksApi();
+  const { logAction } = useLanSocket();
+
+  const logCartAction = (actionType: string, details: Record<string, any>, permitter?: { id?: string; name?: string }) => {
+    logAction(actionType, details, {
+      tableId: tableId || initialCheck?.tableId || null,
+      tableNo: tableName || initialCheck?.tableName || null,
+      checkId: initialCheck?.id || null,
+      permitterId: permitter?.id || null,
+      permitterName: permitter?.name || null,
+    });
+  };
 
   const [localCart, setLocalCart] = useState<CheckItem[]>([]);
   const [appliedDiscount, setAppliedDiscount] = useState<number>(0);
@@ -67,6 +81,7 @@ export function useOrderSession({
   }, [localCart, appliedDiscount, discountPercent, deliveryCharge, options, mode]);
 
   const handleAddItem = async (item: MenuItem, chkId?: string, modifiers?: any[]) => {
+    logCartAction('CART_ADD_ITEM', { menuItemId: item.id, itemName: item.name, checkId: chkId || 'temp' });
     setLocalCart((prev) => {
       const unsentIndex = prev.findIndex(i => i.menuItemId === item.id && i.id.startsWith('temp-'));
       
@@ -101,6 +116,7 @@ export function useOrderSession({
        toast.error("Cannot edit quantity of sent items.");
        return;
     }
+    logCartAction('CART_QTY_UPDATE', { itemId, newQty });
     setLocalCart((prev) => {
       if (newQty <= 0) return prev.filter(i => i.id !== itemId);
       return prev.map(i => i.id === itemId ? { ...i, qty: newQty } : i);
@@ -118,9 +134,18 @@ export function useOrderSession({
     );
   };
 
-  const handleVoidItem = async (chkId: string, itemId: string, voidQty: number, voidReasonId: number) => {
+  const handleVoidItem = async (
+    chkId: string,
+    itemId: string,
+    voidQty: number,
+    voidReasonId: number,
+    supervisorPin?: string,
+    supervisorId?: string,
+    supervisorName?: string
+  ) => {
     if (itemId.startsWith('temp-')) {
       // It's local only, just decrement/remove
+      logCartAction('CART_ITEM_REMOVE', { itemId, checkId: chkId, qtyRemoved: voidQty });
       setLocalCart((prev) => {
         const item = prev.find(i => i.id === itemId);
         if (!item) return prev;
@@ -134,28 +159,30 @@ export function useOrderSession({
       const updatedCheck = await checksApi.voidCheckItem.mutateAsync({
         chkId,
         itemId,
-        data: { voidQty, voidReasonId }
+        data: { voidQty, voidReasonId, supervisorPin, supervisorId }
       });
+      logCartAction('CART_ITEM_VOID', { itemId, checkId: chkId, voidQty, voidReasonId }, { id: supervisorId, name: supervisorName });
       setLocalCart(updatedCheck.items || []);
       toast.success("Item voided successfully");
     } catch (err: any) {
-      toast.error(err.message || "Failed to void item");
+      throw err; // throw so the supervisor override submit handler can catch and show error in override UI
     }
   };
 
-  const handleEntItem = async (chkId: string, itemId: string, entQty: number) => {
+  const handleEntItem = async (chkId: string, itemId: string, entQty: number, supervisorPin?: string, supervisorId?: string, supervisorName?: string) => {
     if (chkId === 'temp') return; // Cannot ent unsaved checks typically
 
     try {
       const updatedCheck = await checksApi.entCheckItem.mutateAsync({
         chkId,
         itemId,
-        data: { entQty }
+        data: { entQty, supervisorPin, supervisorId }
       });
+      logCartAction('CART_ITEM_COMP', { itemId, checkId: chkId, entQty }, { id: supervisorId, name: supervisorName });
       setLocalCart(updatedCheck.items || []);
       toast.success("Item marked as complimentary");
     } catch (err: any) {
-      toast.error(err.message || "Failed to comp item");
+      throw err; // throw so supervisor override submit handler catches it
     }
   };
 
@@ -178,5 +205,6 @@ export function useOrderSession({
     appliedDiscount: totals.actualDiscountValue,
     discountPercent,
     clearCart,
+    deliveryCharge,
   };
 }

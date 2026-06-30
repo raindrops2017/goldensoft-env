@@ -12,5 +12,6 @@ router.post('/logout', authController.logout);
 
 // Protected routes
 router.get('/waiters', requireAuth, authController.getWaiters);
+router.get('/permitted-users', requireAuth, authController.getPermittedUsers);
 
 export default router;

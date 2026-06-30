@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { 
   X, 
   Plus, 
@@ -50,20 +50,95 @@ export function SplitCheckDialog({ open, onClose, check, onSplitConfirm }: Split
   const { data: sections = [] } = useTableSections();
   const allTables = useMemo(() => sections.flatMap(s => s.tables), [sections]);
 
+  const resolvedCheckTableName = useMemo(() => {
+    if (check.tableName) return check.tableName;
+    if (check.tableId) {
+      const table = allTables.find(t => t.id === check.tableId);
+      if (table) {
+        return table.name || `Table ${table.number}`;
+      }
+    }
+    return '';
+  }, [check.tableName, check.tableId, allTables]);
+
+  const headerDisplayName = useMemo(() => {
+    if (!check.tableId) return 'Takeaway';
+    if (resolvedCheckTableName) {
+      if (resolvedCheckTableName.toLowerCase().startsWith('table')) {
+        return resolvedCheckTableName;
+      }
+      return `Table ${resolvedCheckTableName}`;
+    }
+    return 'Loading Table...';
+  }, [check.tableId, resolvedCheckTableName]);
+
+  // Update columns with table info once allTables/check data is available
+  useEffect(() => {
+    if (allTables.length > 0) {
+      setColumns(prev => prev.map(c => {
+        // If tableId exists but tableName is not set, try to resolve it
+        if (c.tableId && !c.tableName) {
+          const table = allTables.find(t => t.id === c.tableId);
+          if (table) {
+            return {
+              ...c,
+              tableName: table.name || `Table ${table.number}`
+            };
+          }
+        }
+        return c;
+      }));
+    }
+  }, [allTables]);
+
+  // Prevent splitting if the check has 1 or less billable items/quantities
+  useEffect(() => {
+    if (open) {
+      const activeItems = check.items || [];
+      if (activeItems.length === 0) {
+        toast.error("Cannot split an empty check.");
+        onClose();
+        return;
+      }
+      
+      const totalBillableQty = activeItems.reduce((sum, item) => {
+        const qty = Number(item.qty) || 0;
+        const voidQty = Number(item.voidQty) || 0;
+        const entQty = Number(item.entQty) || 0;
+        const billable = qty - voidQty - entQty;
+        return sum + Math.max(0, billable);
+      }, 0);
+
+      if (totalBillableQty <= 1) {
+        toast.error("Cannot split a check containing 1 or less billable items.");
+        onClose();
+        return;
+      }
+    }
+  }, [open, check, onClose]);
+
   // Even split input states
   const [showEvenNumpad, setShowEvenNumpad] = useState(false);
   const [evenCount, setEvenCount] = useState<string>('');
 
   // Items split states
   const [columns, setColumns] = useState<TempCheckCol[]>(() => {
-    const originalItems = (check.items || []).map(item => ({
-      checkItemId: item.id,
-      menuItemId: item.menuItemId,
-      itemName: item.itemName || 'Item',
-      itemPrice: item.itemPrice,
-      qty: item.qty,
-      modifiers: item.modifiers || [],
-    }));
+    const originalItems = (check.items || [])
+      .map(item => {
+        const qty = Number(item.qty) || 0;
+        const voidQty = Number(item.voidQty) || 0;
+        const entQty = Number(item.entQty) || 0;
+        const billableQty = qty - voidQty - entQty;
+        return {
+          checkItemId: item.id,
+          menuItemId: item.menuItemId,
+          itemName: item.itemName || 'Item',
+          itemPrice: item.itemPrice,
+          qty: Math.max(0, billableQty),
+          modifiers: item.modifiers || [],
+        };
+      })
+      .filter(item => item.qty > 0);
 
     return [
       {
@@ -94,16 +169,23 @@ export function SplitCheckDialog({ open, onClose, check, onSplitConfirm }: Split
     qty: number;
   } | null>(null);
 
-
-
   const handleAddColumn = () => {
+    // Try to resolve table name from check tableId
+    let resolvedName = check.tableName || undefined;
+    if (!resolvedName && check.tableId) {
+      const table = allTables.find(t => t.id === check.tableId);
+      if (table) {
+        resolvedName = table.name || `Table ${table.number}`;
+      }
+    }
+
     setColumns(prev => [
       ...prev,
       {
         id: safeRandomUUID(),
         guestCount: 1,
         tableId: check.tableId || undefined,
-        tableName: check.tableName || undefined,
+        tableName: resolvedName,
         items: [],
       }
     ]);
@@ -139,11 +221,33 @@ export function SplitCheckDialog({ open, onClose, check, onSplitConfirm }: Split
   };
 
   const handleItemClick = (colId: string, item: any) => {
-    setActiveTransferItem({
-      sourceColId: colId,
-      checkItemId: item.checkItemId,
-      maxQty: item.qty,
-      qty: Math.min(1, item.qty),
+    if (activeTransferItem?.checkItemId === item.checkItemId && activeTransferItem?.sourceColId === colId) {
+      setActiveTransferItem(null);
+    } else {
+      setActiveTransferItem({
+        sourceColId: colId,
+        checkItemId: item.checkItemId,
+        maxQty: item.qty,
+        qty: Math.max(1, Math.floor(item.qty)), // Default to full item count (min 1, whole integer)
+      });
+    }
+  };
+
+  const handleDecreaseQty = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!activeTransferItem) return;
+    setActiveTransferItem(prev => {
+      if (!prev) return null;
+      return { ...prev, qty: Math.max(1, prev.qty - 1) };
+    });
+  };
+
+  const handleIncreaseQty = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!activeTransferItem) return;
+    setActiveTransferItem(prev => {
+      if (!prev) return null;
+      return { ...prev, qty: Math.min(Math.round(prev.maxQty), prev.qty + 1) };
     });
   };
 
@@ -151,6 +255,16 @@ export function SplitCheckDialog({ open, onClose, check, onSplitConfirm }: Split
     if (!activeTransferItem) return;
     const { sourceColId, checkItemId, qty } = activeTransferItem;
     if (sourceColId === targetColId) return;
+
+    // Prevention check: do not leave original check empty
+    if (sourceColId === 'original') {
+      const originalCol = columns.find(c => c.id === 'original')!;
+      const movingItem = originalCol.items.find(i => i.checkItemId === checkItemId);
+      if (movingItem && originalCol.items.length === 1 && qty === movingItem.qty) {
+        toast.error("Cannot move the last item. The original check cannot be empty.");
+        return;
+      }
+    }
 
     setColumns(prev => {
       // Find source item
@@ -224,6 +338,18 @@ export function SplitCheckDialog({ open, onClose, check, onSplitConfirm }: Split
     setSelectingTableColId(null);
   };
 
+  const handleColumnTableNameChange = (colId: string, name: string) => {
+    setColumns(prev => prev.map(c => {
+      if (c.id === colId) {
+        return {
+          ...c,
+          tableName: name
+        };
+      }
+      return c;
+    }));
+  };
+
   const handleGuestCountChange = (colId: string, value: number) => {
     setColumns(prev => prev.map(c => {
       if (c.id === colId) {
@@ -231,6 +357,18 @@ export function SplitCheckDialog({ open, onClose, check, onSplitConfirm }: Split
       }
       return c;
     }));
+  };
+
+  const handleSplitEvenPreset = async (splits: number) => {
+    try {
+      await onSplitConfirm({
+        type: 'evenly',
+        evenSplitCount: splits
+      });
+      onClose();
+    } catch (err: any) {
+      toast.error(err.message || `Failed to split check ${splits}-ways`);
+    }
   };
 
   const handleSplitEvenConfirm = async () => {
@@ -266,6 +404,7 @@ export function SplitCheckDialog({ open, onClose, check, onSplitConfirm }: Split
       .map(c => ({
         guestCount: c.guestCount,
         tableId: c.tableId !== check.tableId ? c.tableId : undefined,
+        tableName: c.tableName || undefined,
         items: c.items.map(i => ({
           checkItemId: i.checkItemId,
           qty: i.qty
@@ -284,37 +423,63 @@ export function SplitCheckDialog({ open, onClose, check, onSplitConfirm }: Split
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-slate-955 bg-slate-950/95 text-white select-none overflow-hidden font-sans">
+    <div className="fixed inset-0 z-50 flex flex-col bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 select-none overflow-hidden font-sans transition-colors duration-200">
       
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-slate-800 bg-slate-900 px-6 py-4 shrink-0">
+      <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-6 py-4 shrink-0 shadow-sm transition-colors duration-200">
         <div className="flex items-center gap-4">
           <Button 
             onClick={onClose} 
             variant="ghost" 
-            className="h-12 w-12 rounded-xl text-slate-400 hover:text-white cursor-pointer active:scale-95 transition-all duration-75"
+            className="h-12 w-12 rounded-xl text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer active:scale-95 transition-all duration-75"
           >
             <X size={24} />
           </Button>
           <div>
             <h2 className="text-xl font-black tracking-tight select-none">
-              SPLIT CHECK: Table {check.tableName || check.tableId || 'Takeaway'} (Check #{check.chkNo})
+              SPLIT CHECK: {headerDisplayName} (Check #{check.chkNo})
             </h2>
-            <p className="text-xs text-slate-400">Drag/Tap items to assign them to different check columns</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">Tap an item to select, then tap target column's "Move Here" to transfer</p>
           </div>
         </div>
 
-        <div className="flex gap-3">
-          <Button
-            onClick={() => setShowEvenNumpad(true)}
-            className="h-12 px-5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold rounded-xl active:scale-95 transition-all duration-75 flex items-center gap-2 cursor-pointer shadow-lg shadow-indigo-900/20"
-          >
-            <Users size={18} />
-            <span>Split Evenly</span>
-          </Button>
+        <div className="flex items-center gap-4">
+          {/* Split Evenly Presets Panel */}
+          <div className="flex gap-2 items-center bg-slate-100 dark:bg-slate-800 p-1.5 rounded-2xl border border-slate-200 dark:border-slate-800 transition-colors duration-200">
+            <span className="text-xs font-bold text-slate-500 dark:text-slate-400 px-2 select-none uppercase tracking-wider">Split Evenly:</span>
+            <Button
+              onClick={() => handleSplitEvenPreset(2)}
+              variant="outline"
+              className="h-10 px-3 bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 font-extrabold text-xs rounded-xl active:scale-95 transition-all duration-75 cursor-pointer shadow-sm hover:bg-slate-50 dark:hover:bg-slate-800"
+            >
+              2-Ways
+            </Button>
+            <Button
+              onClick={() => handleSplitEvenPreset(3)}
+              variant="outline"
+              className="h-10 px-3 bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 font-extrabold text-xs rounded-xl active:scale-95 transition-all duration-75 cursor-pointer shadow-sm hover:bg-slate-50 dark:hover:bg-slate-800"
+            >
+              3-Ways
+            </Button>
+            <Button
+              onClick={() => handleSplitEvenPreset(4)}
+              variant="outline"
+              className="h-10 px-3 bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 font-extrabold text-xs rounded-xl active:scale-95 transition-all duration-75 cursor-pointer shadow-sm hover:bg-slate-50 dark:hover:bg-slate-800"
+            >
+              4-Ways
+            </Button>
+            <Button
+              onClick={() => setShowEvenNumpad(true)}
+              variant="outline"
+              className="h-10 px-3 bg-indigo-50 dark:bg-indigo-950/40 border-indigo-200/50 dark:border-indigo-900/30 text-indigo-600 dark:text-indigo-400 font-extrabold text-xs rounded-xl active:scale-95 transition-all duration-75 cursor-pointer shadow-sm hover:bg-indigo-100 dark:hover:bg-indigo-950"
+            >
+              Custom...
+            </Button>
+          </div>
+
           <Button
             onClick={handleSplitItemsConfirm}
-            className="h-12 px-6 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-black rounded-xl active:scale-95 transition-all duration-75 cursor-pointer shadow-lg shadow-emerald-950/20"
+            className="h-12 px-6 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-black rounded-xl active:scale-95 transition-all duration-75 cursor-pointer shadow-md shadow-emerald-600/10"
           >
             Confirm Split
           </Button>
@@ -331,23 +496,23 @@ export function SplitCheckDialog({ open, onClose, check, onSplitConfirm }: Split
           return (
             <div 
               key={col.id} 
-              className={`w-80 flex flex-col rounded-3xl border bg-slate-900/40 select-none shrink-0 ${
+              className={`w-80 flex flex-col rounded-3xl border select-none shrink-0 transition-colors duration-200 ${
                 isOriginal 
-                  ? 'border-indigo-500/30 bg-indigo-950/5' 
-                  : 'border-slate-800'
+                  ? 'border-indigo-300 dark:border-indigo-500/30 bg-indigo-50/15 dark:bg-indigo-950/5' 
+                  : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/40'
               }`}
             >
               {/* Column Header */}
-              <div className="p-4 border-b border-slate-800/80 bg-slate-900/60 rounded-t-3xl shrink-0 flex flex-col gap-2">
+              <div className="p-4 border-b border-slate-200 dark:border-slate-800/80 bg-slate-50 dark:bg-slate-900/60 rounded-t-3xl shrink-0 flex flex-col gap-2 transition-colors duration-200">
                 <div className="flex items-center justify-between">
-                  <span className="font-black text-sm tracking-wide text-indigo-400 uppercase">
+                  <span className="font-black text-sm tracking-wide text-indigo-600 dark:text-indigo-400 uppercase">
                     {isOriginal ? 'Original Bill' : `Split Bill #${idx}`}
                   </span>
                   {!isOriginal && (
                     <Button
                       onClick={() => handleRemoveColumn(col.id)}
                       variant="ghost"
-                      className="h-8 w-8 text-rose-500 hover:text-rose-400 hover:bg-rose-950/20 rounded-lg cursor-pointer"
+                      className="h-8 w-8 text-rose-600 dark:text-rose-500 hover:text-rose-700 dark:hover:text-rose-450 hover:bg-rose-100 dark:hover:bg-rose-950/20 rounded-lg cursor-pointer"
                     >
                       <Trash2 size={16} />
                     </Button>
@@ -355,36 +520,46 @@ export function SplitCheckDialog({ open, onClose, check, onSplitConfirm }: Split
                 </div>
 
                 {/* Table Context Selector */}
-                <div className="flex items-center gap-1 mt-1 text-xs text-slate-300">
-                  <MapPin size={12} className="text-slate-400" />
-                  <span className="truncate max-w-[130px] font-semibold">
-                    {col.tableName || `Table ${check.tableName || 'N/A'}`}
-                  </span>
-                  {!isOriginal && (
-                    <button
-                      onClick={() => setSelectingTableColId(col.id)}
-                      type="button"
-                      className="ml-auto text-indigo-400 hover:text-indigo-300 font-bold active:scale-95 transition-all text-[11px]"
-                    >
-                      [Change Table]
-                    </button>
-                  )}
+                <div className="flex flex-col gap-1.5 mt-2 pt-2 border-t border-slate-200 dark:border-slate-800/50">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">Table Name:</span>
+                    {!isOriginal && (
+                      <button
+                        onClick={() => setSelectingTableColId(col.id)}
+                        type="button"
+                        className="text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 font-bold active:scale-95 transition-all text-xs"
+                      >
+                        [Select Table]
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <MapPin size={14} className="text-slate-400 shrink-0" />
+                    <input
+                      type="text"
+                      disabled={isOriginal}
+                      value={col.tableName || ''}
+                      onChange={(e) => handleColumnTableNameChange(col.id, e.target.value)}
+                      placeholder={isOriginal ? "Takeaway" : "e.g. Table 5 / Custom Name"}
+                      className="w-full h-10 px-3 text-sm font-semibold rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 disabled:bg-slate-50 dark:disabled:bg-slate-900/50 disabled:opacity-70 disabled:cursor-not-allowed text-slate-800 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-650 select-text"
+                    />
+                  </div>
                 </div>
 
                 {/* Guest Count stepper */}
-                <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-800/50">
-                  <span className="text-xs text-slate-400 font-medium">Guest Count:</span>
+                <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-200 dark:border-slate-800/50">
+                  <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">Guest Count:</span>
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => handleGuestCountChange(col.id, col.guestCount - 1)}
-                      className="h-7 w-7 rounded-lg bg-slate-800 hover:bg-slate-700 flex items-center justify-center font-bold active:scale-95 transition-all cursor-pointer"
+                      className="h-7 w-7 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 flex items-center justify-center font-bold active:scale-95 transition-all cursor-pointer"
                     >
                       -
                     </button>
                     <span className="text-xs font-black min-w-4 text-center">{col.guestCount}</span>
                     <button
                       onClick={() => handleGuestCountChange(col.id, col.guestCount + 1)}
-                      className="h-7 w-7 rounded-lg bg-slate-800 hover:bg-slate-700 flex items-center justify-center font-bold active:scale-95 transition-all cursor-pointer"
+                      className="h-7 w-7 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 flex items-center justify-center font-bold active:scale-95 transition-all cursor-pointer"
                     >
                       +
                     </button>
@@ -393,11 +568,11 @@ export function SplitCheckDialog({ open, onClose, check, onSplitConfirm }: Split
               </div>
 
               {/* Items List (Scrollable) */}
-              <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-2 select-none min-h-0">
+              <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-2 select-none min-h-0 relative">
                 {col.items.length === 0 ? (
-                  <div className="flex-1 flex flex-col items-center justify-center text-slate-600 text-xs border-2 border-dashed border-slate-800/60 rounded-2xl p-4 text-center">
-                    <Scissors size={20} className="mb-2 text-slate-700" />
-                    <span>No items. Tap items in other columns to move them here.</span>
+                  <div className="flex-1 flex flex-col items-center justify-center text-slate-400 dark:text-slate-600 text-xs border-2 border-dashed border-slate-200 dark:border-slate-800/80 rounded-2xl p-4 text-center">
+                    <Scissors size={20} className="mb-2 text-slate-400 dark:text-slate-600" />
+                    <span>No items. Select an item in another column to move it here.</span>
                   </div>
                 ) : (
                   col.items.map(item => {
@@ -408,37 +583,83 @@ export function SplitCheckDialog({ open, onClose, check, onSplitConfirm }: Split
                         onClick={() => handleItemClick(col.id, item)}
                         className={`p-3 rounded-2xl border text-left cursor-pointer active:scale-98 transition-all duration-75 select-none ${
                           isSelected
-                            ? 'border-indigo-500 bg-indigo-950/20 shadow-md ring-2 ring-indigo-500/20'
-                            : 'border-slate-800/80 bg-slate-900/30 hover:border-slate-700 hover:bg-slate-900/60'
+                            ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-950/20 shadow-md ring-2 ring-indigo-500/20'
+                            : 'border-slate-200 dark:border-slate-800/80 bg-slate-50 dark:bg-slate-900/30 hover:border-slate-300 dark:hover:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-900/60 text-slate-800 dark:text-slate-200'
                         }`}
                       >
                         <div className="flex items-start justify-between gap-2">
-                          <span className="font-extrabold text-sm text-slate-100 leading-tight">
+                          <span className="font-extrabold text-sm text-slate-900 dark:text-slate-100 leading-tight">
                             {item.itemName}
                           </span>
-                          <span className="font-black text-xs text-indigo-400 bg-indigo-950/30 px-2 py-0.5 rounded-lg shrink-0">
+                          <span className="font-black text-xs text-indigo-600 dark:text-indigo-400 bg-indigo-100 dark:bg-indigo-950/30 px-2 py-0.5 rounded-lg shrink-0">
                             x{item.qty.toFixed(1).replace('.0', '')}
                           </span>
                         </div>
                         {item.modifiers.map((m: any) => (
-                          <div key={m.id} className="text-[10px] text-slate-400 font-medium mt-0.5 pl-2 border-l border-slate-800">
+                          <div key={m.id} className="text-[10px] text-slate-500 dark:text-slate-400 font-medium mt-0.5 pl-2 border-l border-slate-200 dark:border-slate-800">
                             + {m.name} (x{m.qty})
                           </div>
                         ))}
-                        <div className="text-right text-xs font-black text-slate-400 mt-2">
+
+                        {/* Inline Stepper for quantity adjustment */}
+                        {isSelected && item.qty > 1 && (
+                          <div 
+                            onClick={(e) => e.stopPropagation()} 
+                            className="mt-3 p-2 bg-white dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800 flex items-center justify-between shadow-inner"
+                          >
+                            <span className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider pl-1">Qty to move:</span>
+                            <div className="flex items-center gap-2.5">
+                              <button
+                                onClick={handleDecreaseQty}
+                                disabled={activeTransferItem.qty <= 1}
+                                className="h-8 w-8 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-30 disabled:pointer-events-none flex items-center justify-center font-bold text-sm active:scale-90 transition-all cursor-pointer text-slate-700 dark:text-slate-300"
+                              >
+                                -
+                              </button>
+                              <span className="text-xs font-black text-indigo-600 dark:text-indigo-400 min-w-8 text-center">
+                                {activeTransferItem.qty} / {Math.round(activeTransferItem.maxQty)}
+                              </span>
+                              <button
+                                onClick={handleIncreaseQty}
+                                disabled={activeTransferItem.qty >= Math.round(activeTransferItem.maxQty)}
+                                className="h-8 w-8 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-30 disabled:pointer-events-none flex items-center justify-center font-bold text-sm active:scale-90 transition-all cursor-pointer text-slate-700 dark:text-slate-300"
+                              >
+                                +
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="text-right text-xs font-black text-slate-500 dark:text-slate-400 mt-2">
                           {(item.itemPrice * item.qty).toFixed(0)} EGP
                         </div>
                       </div>
                     );
                   })
                 )}
+
+                {/* Target Column Dropzone Overlay */}
+                {activeTransferItem && activeTransferItem.sourceColId !== col.id && (
+                  <div 
+                    onClick={() => handleMoveItem(col.id)}
+                    className="absolute inset-0 bg-indigo-600/90 dark:bg-indigo-700/95 flex flex-col items-center justify-center p-4 text-center cursor-pointer transition-all active:scale-[0.98] select-none rounded-2xl m-2 shadow-xl z-10"
+                  >
+                    <ArrowRightLeft size={36} className="text-white mb-2 animate-pulse" />
+                    <span className="text-white font-black text-lg">
+                      Move {activeTransferItem.qty} Here
+                    </span>
+                    <span className="text-white/80 text-[10px] mt-1 uppercase font-bold tracking-wider">
+                      Tap to transfer to {isOriginal ? 'Original Bill' : `Split #${idx}`}
+                    </span>
+                  </div>
+                )}
               </div>
 
               {/* Column Footer */}
-              <div className="p-4 border-t border-slate-800 bg-slate-900/50 rounded-b-3xl shrink-0">
+              <div className="p-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 rounded-b-3xl shrink-0 transition-colors duration-200">
                 <div className="flex justify-between items-center select-none">
-                  <span className="text-xs font-bold text-slate-400">Draft Total:</span>
-                  <span className="text-lg font-black text-emerald-400 select-none">
+                  <span className="text-xs font-bold text-slate-500 dark:text-slate-400">Draft Total:</span>
+                  <span className="text-lg font-black text-emerald-600 dark:text-emerald-400 select-none">
                     {colTotal.toFixed(0)} EGP
                   </span>
                 </div>
@@ -451,9 +672,9 @@ export function SplitCheckDialog({ open, onClose, check, onSplitConfirm }: Split
         <button
           onClick={handleAddColumn}
           type="button"
-          className="w-80 border-2 border-dashed border-slate-800/80 rounded-3xl flex flex-col items-center justify-center text-slate-400 hover:text-white hover:border-indigo-500 hover:bg-slate-900/10 cursor-pointer active:scale-98 transition-all shrink-0 select-none group py-8"
+          className="w-80 border-2 border-dashed border-slate-200 dark:border-slate-800/80 rounded-3xl flex flex-col items-center justify-center text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-white hover:border-indigo-400 dark:hover:border-indigo-500 hover:bg-slate-100/50 dark:hover:bg-slate-900/10 cursor-pointer active:scale-98 transition-all shrink-0 select-none group py-8"
         >
-          <div className="h-14 w-14 rounded-full bg-slate-900 group-hover:bg-indigo-950 flex items-center justify-center text-slate-300 group-hover:text-indigo-400 transition-all shadow-md">
+          <div className="h-14 w-14 rounded-full bg-slate-200 dark:bg-slate-900 group-hover:bg-indigo-100 dark:group-hover:bg-indigo-950 flex items-center justify-center text-slate-600 dark:text-slate-300 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-all shadow-sm">
             <Plus size={24} />
           </div>
           <span className="font-bold text-sm mt-3 select-none">Add Split Check</span>
@@ -461,107 +682,27 @@ export function SplitCheckDialog({ open, onClose, check, onSplitConfirm }: Split
         </button>
       </div>
 
-      {/* Floating Item Transfer Controls (renders when an item is tapped) */}
-      {activeTransferItem && (() => {
-        const itemCol = columns.find(c => c.id === activeTransferItem.sourceColId)!;
-        const item = itemCol.items.find(i => i.checkItemId === activeTransferItem.checkItemId)!;
-        
-        return (
-          <div className="absolute bottom-6 left-1/2 -translate-x-1/2 w-[550px] max-w-full bg-slate-900 border border-indigo-500/30 rounded-3xl shadow-2xl p-5 flex flex-col gap-4 z-40 select-none animate-in slide-in-from-bottom-6 fade-in duration-200">
-            <div className="flex items-center justify-between border-b border-slate-800/60 pb-3">
-              <div>
-                <span className="text-[10px] font-black uppercase text-indigo-400 tracking-wider">Move Item</span>
-                <h3 className="font-black text-base text-slate-100">{item.itemName}</h3>
-              </div>
-              <Button
-                onClick={() => setActiveTransferItem(null)}
-                variant="ghost"
-                className="h-8 w-8 text-slate-400 hover:text-white cursor-pointer"
-              >
-                <X size={16} />
-              </Button>
-            </div>
-
-            {/* Quantity Stepper */}
-            <div className="flex items-center justify-between bg-slate-950/40 p-3 rounded-2xl border border-slate-800/50">
-              <span className="text-xs text-slate-400 font-bold">Quantity to Move:</span>
-              <div className="flex items-center gap-4">
-                <button
-                  onClick={() => setActiveTransferItem(prev => prev ? { ...prev, qty: Math.max(0.1, Number((prev.qty - 0.5).toFixed(1))) } : null)}
-                  className="h-10 w-10 rounded-xl bg-slate-800 hover:bg-slate-700 flex items-center justify-center font-bold text-lg active:scale-90 transition-all cursor-pointer"
-                >
-                  -
-                </button>
-                <span className="text-base font-black min-w-16 text-center select-none text-indigo-400">
-                  {activeTransferItem.qty.toFixed(1).replace('.0', '')} / {activeTransferItem.maxQty.toFixed(1).replace('.0', '')}
-                </span>
-                <button
-                  onClick={() => setActiveTransferItem(prev => prev ? { ...prev, qty: Math.min(prev.maxQty, Number((prev.qty + 0.5).toFixed(1))) } : null)}
-                  className="h-10 w-10 rounded-xl bg-slate-800 hover:bg-slate-700 flex items-center justify-center font-bold text-lg active:scale-90 transition-all cursor-pointer"
-                >
-                  +
-                </button>
-                <Button
-                  onClick={() => setActiveTransferItem(prev => prev ? { ...prev, qty: prev.maxQty } : null)}
-                  variant="outline"
-                  className="h-10 rounded-xl px-3 border-indigo-500/30 text-indigo-400 text-xs font-extrabold cursor-pointer active:scale-95"
-                >
-                  All
-                </Button>
-              </div>
-            </div>
-
-            {/* Target Columns selection */}
-            <div>
-              <span className="text-xs text-slate-400 font-bold block mb-2">Select Destination Column:</span>
-              <div className="flex flex-wrap gap-2">
-                {columns.map((c, idx) => {
-                  const isSource = c.id === activeTransferItem.sourceColId;
-                  const label = c.id === 'original' ? 'Original Check' : `Split #${idx}`;
-                  
-                  return (
-                    <Button
-                      key={c.id}
-                      onClick={() => handleMoveItem(c.id)}
-                      disabled={isSource}
-                      className={`h-12 flex-1 rounded-xl font-bold active:scale-95 transition-all text-xs cursor-pointer ${
-                        isSource
-                          ? 'bg-slate-950 text-slate-700 border border-slate-800/80 cursor-not-allowed'
-                          : 'bg-indigo-600 hover:bg-indigo-700 text-white'
-                      }`}
-                    >
-                      <ArrowRightLeft size={12} className="mr-1.5 shrink-0" />
-                      <span className="truncate">{label}</span>
-                    </Button>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-        );
-      })()}
-
       {/* Even Split Numpad Popover */}
       {showEvenNumpad && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm select-none">
-          <div className="w-[320px] bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl p-6 flex flex-col gap-4 animate-in zoom-in-95 duration-100">
+          <div className="w-[320px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl p-6 flex flex-col gap-4 animate-in zoom-in-95 duration-100 text-slate-900 dark:text-slate-100">
             <div className="flex justify-between items-center">
-              <h3 className="font-black text-base text-slate-100 flex items-center gap-1.5">
-                <Users size={18} className="text-indigo-400" />
+              <h3 className="font-black text-base flex items-center gap-1.5">
+                <Users size={18} className="text-indigo-600 dark:text-indigo-400" />
                 <span>Split Evenly</span>
               </h3>
               <Button
                 onClick={() => { setShowEvenNumpad(false); setEvenCount(''); }}
                 variant="ghost"
-                className="h-8 w-8 text-slate-400 hover:text-white cursor-pointer"
+                className="h-8 w-8 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white cursor-pointer"
               >
                 <X size={16} />
               </Button>
             </div>
 
-            <div className="bg-slate-950 border border-slate-800 rounded-2xl p-3 text-center">
-              <span className="text-xs text-slate-500 block">How many ways to split?</span>
-              <span className="text-3xl font-black text-indigo-400 tracking-tight min-h-[36px] select-none block mt-1">
+            <div className="bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl p-3 text-center">
+              <span className="text-xs text-slate-500 dark:text-slate-400 block">How many ways to split?</span>
+              <span className="text-3xl font-black text-indigo-600 dark:text-indigo-400 tracking-tight min-h-[36px] select-none block mt-1">
                 {evenCount || '_'}
               </span>
             </div>
@@ -572,26 +713,26 @@ export function SplitCheckDialog({ open, onClose, check, onSplitConfirm }: Split
                 <button
                   key={num}
                   onClick={() => setEvenCount(prev => prev.length < 2 ? prev + num : prev)}
-                  className="h-14 bg-slate-800 hover:bg-slate-700 rounded-xl font-black text-lg active:scale-95 active:bg-indigo-950 active:text-indigo-400 transition-all select-none cursor-pointer"
+                  className="h-14 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl font-black text-lg active:scale-95 active:bg-indigo-100 dark:active:bg-indigo-950 active:text-indigo-600 dark:active:text-indigo-400 transition-all select-none cursor-pointer border border-slate-200/50 dark:border-slate-700/50 shadow-sm"
                 >
                   {num}
                 </button>
               ))}
               <button
                 onClick={() => setEvenCount('')}
-                className="h-14 bg-slate-800/40 hover:bg-slate-800 text-rose-400 hover:text-rose-300 rounded-xl font-bold text-sm active:scale-95 transition-all select-none cursor-pointer"
+                className="h-14 bg-slate-50 dark:bg-slate-800/40 hover:bg-slate-100 dark:hover:bg-slate-800 text-rose-600 dark:text-rose-400 rounded-xl font-bold text-sm active:scale-95 transition-all select-none cursor-pointer border border-slate-200/50 dark:border-slate-700/50 shadow-sm"
               >
                 Clear
               </button>
               <button
                 onClick={() => setEvenCount(prev => prev.length < 2 ? prev + '0' : prev)}
-                className="h-14 bg-slate-800 hover:bg-slate-700 rounded-xl font-black text-lg active:scale-95 transition-all select-none cursor-pointer"
+                className="h-14 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl font-black text-lg active:scale-95 active:bg-indigo-100 dark:active:bg-indigo-950 active:text-indigo-600 dark:active:text-indigo-400 transition-all select-none cursor-pointer border border-slate-200/50 dark:border-slate-700/50 shadow-sm"
               >
                 0
               </button>
               <button
                 onClick={() => setEvenCount(prev => prev.slice(0, -1))}
-                className="h-14 bg-slate-800/40 hover:bg-slate-800 text-slate-300 rounded-xl font-bold text-sm active:scale-95 transition-all select-none cursor-pointer"
+                className="h-14 bg-slate-50 dark:bg-slate-800/40 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-xl font-bold text-sm active:scale-95 transition-all select-none cursor-pointer border border-slate-200/50 dark:border-slate-700/50 shadow-sm"
               >
                 Del
               </button>
@@ -610,16 +751,16 @@ export function SplitCheckDialog({ open, onClose, check, onSplitConfirm }: Split
       {/* Table Selector Dialog for Custom Splits */}
       {selectingTableColId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm select-none">
-          <div className="w-[500px] max-w-full bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl p-6 flex flex-col gap-4 select-none animate-in zoom-in-95 duration-100 max-h-[85vh]">
+          <div className="w-[500px] max-w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl p-6 flex flex-col gap-4 select-none animate-in zoom-in-95 duration-100 max-h-[85vh] text-slate-900 dark:text-slate-100">
             <div className="flex justify-between items-center">
-              <h3 className="font-black text-base text-slate-100 flex items-center gap-1.5">
-                <MapPin size={18} className="text-indigo-400" />
+              <h3 className="font-black text-base flex items-center gap-1.5">
+                <MapPin size={18} className="text-indigo-600 dark:text-indigo-400" />
                 <span>Move split check to Table</span>
               </h3>
               <Button
                 onClick={() => setSelectingTableColId(null)}
                 variant="ghost"
-                className="h-8 w-8 text-slate-400 hover:text-white cursor-pointer"
+                className="h-8 w-8 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white cursor-pointer"
               >
                 <X size={16} />
               </Button>
@@ -629,7 +770,7 @@ export function SplitCheckDialog({ open, onClose, check, onSplitConfirm }: Split
             <div className="flex-1 overflow-y-auto flex flex-col gap-4 pr-1">
               {sections.map(section => (
                 <div key={section.id} className="flex flex-col gap-2">
-                  <span className="text-xs font-bold text-indigo-400 uppercase tracking-wider pl-1">
+                  <span className="text-xs font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider pl-1">
                     {section.name}
                   </span>
                   <div className="grid grid-cols-4 gap-2">
@@ -639,10 +780,10 @@ export function SplitCheckDialog({ open, onClose, check, onSplitConfirm }: Split
                         <button
                           key={table.id}
                           onClick={() => handleTableChange(selectingTableColId, table.id)}
-                          className={`h-14 flex flex-col items-center justify-center rounded-xl font-bold transition-all cursor-pointer select-none active:scale-95 ${
+                          className={`h-14 flex flex-col items-center justify-center rounded-xl font-bold transition-all cursor-pointer select-none active:scale-95 border ${
                             isSameTable
-                              ? 'bg-indigo-950 text-indigo-400 border border-indigo-500/40'
-                              : 'bg-slate-800 hover:bg-slate-700 text-white'
+                              ? 'bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 border-indigo-200 dark:border-indigo-500/40'
+                              : 'bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-white border-slate-200 dark:border-slate-700/60 shadow-sm'
                           }`}
                         >
                           <span className="text-xs font-black">{table.name || `T${table.number}`}</span>

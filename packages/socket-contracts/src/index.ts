@@ -1,4 +1,4 @@
-import type { CheckItem } from '@goldensoft/core-schemas';
+import type { CheckItem, ScreenLogInput } from '@goldensoft/core-schemas';
 
 export interface TableLock {
   tableId: string;
@@ -56,6 +56,14 @@ export interface LanClientToServerEvents {
    */
   "kds:order:send": (
     payload: { checkId: string; items: CheckItem[] },
+    callback: (res: SocketAcknowledgement) => void
+  ) => void;
+
+  /**
+   * Send a high-level UI/business action log to the server.
+   */
+  "pos:log:create": (
+    payload: ScreenLogInput,
     callback: (res: SocketAcknowledgement) => void
   ) => void;
 }

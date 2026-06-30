@@ -9,6 +9,8 @@ const envSchema = z.object({
   JWT_SECRET: z.string().min(1, 'JWT_SECRET is required'),
   JWT_EXPIRES_IN: z.string().min(1, 'JWT_EXPIRES_IN is required').default('15m'),
   REFRESH_TOKEN_EXPIRES_IN: z.string().min(1, 'REFRESH_TOKEN_EXPIRES_IN is required').default('7d'),
+  CLOUD_API_URL: z.string().default('http://localhost:3000/api'),
+  TENANT_SUBDOMAIN: z.string().default('demo'),
 });
 
 const parsedEnv = envSchema.safeParse(process.env);

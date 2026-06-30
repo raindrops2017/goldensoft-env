@@ -1,0 +1,32 @@
+GOLDEN SOFT RESTAURANT
+مطعم جولدن سوفت
+Cairo, Egypt - Ph: 02-23456789
+==========================================
+Date: 2026-06-29            Time: 11:04:44
+Check #: 1000              Order: Takeaway
+Waiter: System              Cashier: #6a79
+Guests: 1                        Prints: 2
+------------------------------------------
+Item / الصنف           Qty x Price   Total
+------------------------------------------
+Lentil Soup / شوربة عدس
+  1 x 45.00                      45.00 EGP
+Orzo Soup / شوربة لسان عصفور
+  1 x 40.00                      40.00 EGP
+Garlic Bread with Cheese / خبز بالثوم والجبنة
+  1 x 55.00                      55.00 EGP
+Kobeba / كبيبة شرقية
+  1 x 70.00                      70.00 EGP
+------------------------------------------
+Subtotal / المجموع الفرعي       268.13 EGP
+Service Charge / الخدمة         +25.20 EGP
+Tax / الضريبة                   +32.93 EGP
+==========================================
+NET TOTAL / الإجمالي            210.00 EGP
+==========================================
+Thank you for dining with us!
+شكراً لزيارتكم!
+   Check #1000 - Powered by GoldenSoft
+
+
+
