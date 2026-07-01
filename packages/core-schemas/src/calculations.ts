@@ -11,28 +11,37 @@ export interface CalculableItem {
   modifiers?: { price: number; qty: number }[];
 }
 
+export function calculateBillableQty(qty: number, entQty: number): number {
+  return Math.max(0, qty - entQty);
+}
+
+export function calculateSubtotal(items: CalculableItem[]): number {
+  let totalItemsValue = 0;
+  
+  for (const item of items) {
+    const billableQty = calculateBillableQty(item.qty, item.entQty);
+    let itemTotal = item.itemPrice;
+    
+    // Add modifier prices
+    if (item.modifiers && item.modifiers.length > 0) {
+      for (const mod of item.modifiers) {
+        itemTotal += (mod.price || 0) * (mod.qty || 1);
+      }
+    }
+    
+    totalItemsValue += itemTotal * billableQty;
+  }
+  
+  return totalItemsValue;
+}
+
 export function calculateCheckTotals(
   items: CalculableItem[],
   discount: number,
   deliveryCharge: number,
   options: CalculationOptions
 ) {
-  let totalItemsValue = 0;
-  
-  for (const item of items) {
-    // qty is already reduced when voided, so only subtract entQty for billing
-    const billableQty = Math.max(0, item.qty - item.entQty);
-    let itemTotal = item.itemPrice;
-    
-    // Add modifier prices
-    if (item.modifiers && item.modifiers.length > 0) {
-      for (const mod of item.modifiers) {
-        itemTotal += mod.price * mod.qty;
-      }
-    }
-    
-    totalItemsValue += itemTotal * billableQty;
-  }
+  const totalItemsValue = calculateSubtotal(items);
 
   // Follow exact mathematical formula
   const net = Math.max(0, totalItemsValue - discount);
@@ -55,3 +64,4 @@ export function calculateCheckTotals(
     total: Math.round(total * 100) / 100,
   };
 }
+

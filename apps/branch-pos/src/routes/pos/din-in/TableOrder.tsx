@@ -4,7 +4,7 @@ import { api } from "@/lib/api";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { ShoppingCart } from "lucide-react";
 import { useAuthStore } from "@/store/useAuthStore";
-import type { MenuItem } from "@goldensoft/core-schemas";
+
 import { toast } from "sonner";
 import { SplitCheckDialog } from "@/components/pos-ordering/SplitCheckDialog";
 
@@ -22,7 +22,7 @@ import ModifierGrid from "@/components/pos-ordering/ModifierGrid";
 import { useOrderSession } from "@/hooks/pos/useOrderSession";
 import { useLanSocket } from "@/hooks/useLanSocket";
 import { useCurrentShift } from "@/hooks/api/useShiftApi";
-import { PERMISSIONS } from "@goldensoft/core-schemas";
+import { PERMISSIONS, calculateBillableQty, type MenuItem } from "@goldensoft/core-schemas";
 import { usePermissions } from "@/hooks/usePermissions";
 import { SupervisorOverrideDialog } from "@/components/pos-ordering/SupervisorOverrideDialog";
 
@@ -99,7 +99,23 @@ export default function TableOrder() {
 
   // Filter open checks for this table
   const tableChecks = openChecks?.filter(c => c.tableId === activeTable?.id) || [];
-  const activeCheckHead = tableChecks.find(c => c.chkNo === chkNo) || tableChecks[0];
+
+  const activeCheckHead = useMemo(() => {
+    if (chkNo !== null) {
+      return tableChecks.find(c => c.chkNo === chkNo) || tableChecks[0];
+    }
+    if (user?.isWaiter) {
+      const ownCheck = tableChecks.find(c => c.waiterId === user.id);
+      if (ownCheck) return ownCheck;
+    }
+    return tableChecks[0];
+  }, [tableChecks, chkNo, user]);
+
+  const isOwnCheckActive = useMemo(() => {
+    if (!activeCheckHead) return true; // new check
+    if (!user?.isWaiter) return true; // not a waiter (manager/cashier)
+    return activeCheckHead.waiterId === user.id;
+  }, [activeCheckHead, user]);
   
   const { data: fullCheck } = useCheck(activeCheckHead?.id || "", {
     enabled: !!activeCheckHead?.id
@@ -200,6 +216,10 @@ export default function TableOrder() {
     total,
     checkPrinted,
     onVoidItem: (itemId: string, voidQty: number, reasonId: number) => {
+       if (!isOwnCheckActive) {
+         toast.error("You cannot modify another waiter's check / لا يمكنك تعديل حساب نادل آخر");
+         return;
+       }
        if (!fullCheck?.id) return;
        if (itemId.startsWith('temp-')) {
          handleVoidItem(fullCheck.id, itemId, voidQty, reasonId);
@@ -212,15 +232,27 @@ export default function TableOrder() {
        });
     },
     onRemoveItem: (itemId: string) => {
+       if (!isOwnCheckActive) {
+         toast.error("You cannot modify another waiter's check / لا يمكنك تعديل حساب نادل آخر");
+         return;
+       }
        handleVoidItem('temp', itemId, 1, 1);
     },
     onChangeQty: (itemId: string, delta: number) => {
-        const item = localCart.find(i => i.id === itemId || i.menuItemId === itemId);
-        if (item) {
-           session.handleChangeQty(item.id!, item.qty + delta);
-        }
+         if (!isOwnCheckActive) {
+           toast.error("You cannot modify another waiter's check / لا يمكنك تعديل حساب نادل آخر");
+           return;
+         }
+         const item = localCart.find(i => i.id === itemId || i.menuItemId === itemId);
+         if (item) {
+            session.handleChangeQty(item.id!, item.qty + delta);
+         }
     },
     onCompItem: (itemId: string, qty: number = 1) => {
+       if (!isOwnCheckActive) {
+         toast.error("You cannot modify another waiter's check / لا يمكنك تعديل حساب نادل آخر");
+         return;
+       }
        if (!fullCheck?.id) return;
        const isPrinted = (fullCheck.printCount || 0) > 0;
        const requiredPermission = isPrinted ? PERMISSIONS.CHECK_PRINTED_ITEM_COMP : PERMISSIONS.CHECK_ITEM_COMP;
@@ -229,6 +261,10 @@ export default function TableOrder() {
        });
     },
     onUpdateNotes: (itemId: string, notes: string) => {
+      if (!isOwnCheckActive) {
+        toast.error("You cannot modify another waiter's check / لا يمكنك تعديل حساب نادل آخر");
+        return;
+      }
       handleUpdateNotes(itemId, notes);
     },
     menuItems: items,
@@ -238,6 +274,10 @@ export default function TableOrder() {
 
   /* ── Handlers ── */
   function handleVoidCheck() {
+    if (!isOwnCheckActive) {
+      toast.error("You cannot modify another waiter's check / لا يمكنك تعديل حساب نادل آخر");
+      return;
+    }
     if (!fullCheck?.id) {
       toast.error("Nothing to void");
       return;
@@ -246,6 +286,10 @@ export default function TableOrder() {
   }
 
   function handleConfirmVoid(reasonId: number) {
+    if (!isOwnCheckActive) {
+      toast.error("You cannot modify another waiter's check / لا يمكنك تعديل حساب نادل آخر");
+      return;
+    }
     if (!fullCheck?.id) return;
     const isClosed = fullCheck.chkStatusId !== 1;
     const requiredPermission = isClosed ? PERMISSIONS.CHECK_CLOSED_VOID : PERMISSIONS.CHECK_VOID;
@@ -259,6 +303,10 @@ export default function TableOrder() {
   }
 
   const handleSend = async () => {
+    if (!isOwnCheckActive) {
+      toast.error("You cannot modify another waiter's check / لا يمكنك تعديل حساب نادل آخر");
+      return;
+    }
     const unsentItems = localCart.filter(i => i.id?.startsWith('temp-'));
     if (unsentItems.length === 0) {
       navigate("/dine-in");
@@ -366,6 +414,10 @@ export default function TableOrder() {
   };
 
   const handlePrint = async () => {
+    if (!isOwnCheckActive) {
+      toast.error("You cannot modify another waiter's check / لا يمكنك تعديل حساب نادل آخر");
+      return;
+    }
     if (!fullCheck) return;
 
     const isPrinted = (fullCheck.printCount || 0) > 0;
@@ -404,14 +456,23 @@ export default function TableOrder() {
           </span>
           {tableChecks.map((chk) => {
             const isActive = chk.id === fullCheck?.id;
+            const isOwnCheck = !user?.isWaiter || chk.waiterId === user?.id;
             return (
               <button
                 key={chk.id}
-                onClick={() => navigate(`/table/${tableNo}?chkNo=${chk.chkNo}`)}
-                className={`h-11 px-4 rounded-xl font-extrabold active:scale-95 transition-all text-xs shrink-0 select-none cursor-pointer flex items-center gap-1.5 ${
+                onClick={() => {
+                  if (isOwnCheck) {
+                    navigate(`/table/${tableNo}?chkNo=${chk.chkNo}`);
+                  } else {
+                    toast.error(`This check belongs to another waiter (${chk.waiterName || 'unknown'}) / هذا الحساب يخص نادل آخر`);
+                  }
+                }}
+                className={`h-11 px-4 rounded-xl font-extrabold transition-all text-xs shrink-0 select-none flex items-center gap-1.5 ${
                   isActive
-                    ? "bg-indigo-600 text-white shadow-lg shadow-indigo-900/30"
-                    : "bg-white dark:bg-[#151120] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-white/5"
+                    ? "bg-indigo-600 text-white shadow-lg shadow-indigo-900/30 active:scale-95 cursor-pointer"
+                    : !isOwnCheck
+                    ? "bg-slate-200/50 dark:bg-slate-800/30 text-slate-400 dark:text-slate-600 cursor-not-allowed opacity-50"
+                    : "bg-white dark:bg-[#151120] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-white/5 active:scale-95 cursor-pointer"
                 }`}
               >
                 <span>Check #{chk.chkNo}</span>
@@ -444,6 +505,10 @@ export default function TableOrder() {
                 <ModifierGrid
                   parentItem={selectedParentItem}
                   onConfirm={(modifiers) => {
+                    if (!isOwnCheckActive) {
+                      toast.error("You cannot modify another waiter's check / لا يمكنك تعديل حساب نادل آخر");
+                      return;
+                    }
                     handleAddItem(selectedParentItem as any, fullCheck?.id, modifiers);
                     toast.success(`${selectedParentItem.name} added to cart`, { duration: 1500 });
                     setViewMode(selectedParentItem.menuSubGroupId ? "items" : "subGroups");
@@ -470,6 +535,10 @@ export default function TableOrder() {
                     setViewMode("items");
                   }}
                   onItemClick={(item) => {
+                    if (!isOwnCheckActive) {
+                      toast.error("You cannot modify another waiter's check / لا يمكنك تعديل حساب نادل آخر");
+                      return;
+                    }
                     if (item.modifiers && item.modifiers.length > 0) {
                       setSelectedParentItem(item as any);
                       setViewMode("modifiers");
@@ -497,6 +566,10 @@ export default function TableOrder() {
                 hasItems={localCart.length > 0}
                 onSend={handleSend}
                 onDiscount={() => {
+                  if (!isOwnCheckActive) {
+                    toast.error("You cannot modify another waiter's check / لا يمكنك تعديل حساب نادل آخر");
+                    return;
+                  }
                   if (!fullCheck?.id) {
                     setDiscountOpen(true);
                     return;
@@ -509,19 +582,28 @@ export default function TableOrder() {
                   });
                 }}
                 onPrint={() => handlePrint()}
-                onPay={() => runWithPermission(PERMISSIONS.CHECK_CLOSE, async () => { setPayDrawerOpen(true); })}
+                onPay={() => {
+                  if (!isOwnCheckActive) {
+                    toast.error("You cannot modify another waiter's check / لا يمكنك تعديل حساب نادل آخر");
+                    return;
+                  }
+                  runWithPermission(PERMISSIONS.CHECK_CLOSE, async () => { setPayDrawerOpen(true); });
+                }}
                 onVoid={handleVoidCheck}
                 onSplit={() => {
+                  if (!isOwnCheckActive) {
+                    toast.error("You cannot modify another waiter's check / لا يمكنك تعديل حساب نادل آخر");
+                    return;
+                  }
                   if (!fullCheck) return;
 
                   // Prevent splitting if there's 1 or less billable items
                   const activeItems = fullCheck.items || [];
                   const totalBillableQty = activeItems.reduce((sum: number, item: any) => {
                     const qty = Number(item.qty) || 0;
-                    const voidQty = Number(item.voidQty) || 0;
                     const entQty = Number(item.entQty) || 0;
-                    const billable = qty - voidQty - entQty;
-                    return sum + Math.max(0, billable);
+                    const billable = calculateBillableQty(qty, entQty);
+                    return sum + billable;
                   }, 0);
 
                   if (totalBillableQty <= 1) {

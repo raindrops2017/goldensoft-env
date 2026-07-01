@@ -4,10 +4,9 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Percent, Tag } from "lucide-react";
 
 interface DiscountDialogProps {
   open: boolean;
@@ -115,22 +114,32 @@ export default function DiscountDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleDialogChange}>
-      <DialogContent>
+      <DialogContent className="sm:max-w-md max-w-[calc(100%-2rem)] bg-white dark:bg-slate-900 rounded-3xl p-6 shadow-2xl border border-slate-100 dark:border-slate-800 font-sans">
         <DialogHeader>
-          <DialogTitle>Discount</DialogTitle>
+          <DialogTitle className="text-2xl font-black text-slate-900 dark:text-white leading-tight flex items-center gap-3">
+            <div className="p-2.5 bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 rounded-2xl border border-amber-100 dark:border-amber-950/30">
+              <Percent size={22} />
+            </div>
+            <div className="flex flex-col">
+              <span className="tracking-tight select-none">Discount</span>
+              <span className="text-xs font-semibold text-slate-400 dark:text-slate-500 mt-0.5 select-none">
+                Apply a percentage or value discount to this check
+              </span>
+            </div>
+          </DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-4">
-          {/* Mode + Input */}
-          <div className="space-y-3">
-            <div className="inline-flex rounded-full border border-gray-200 bg-gray-50 p-1 text-xs dark:border-gray-700 dark:bg-gray-800">
+        <div className="space-y-4 py-4 select-none">
+          {/* Mode Selector */}
+          <div className="flex justify-center">
+            <div className="inline-flex w-full rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 p-1">
               <button
                 type="button"
                 onClick={() => setMode("percent")}
-                className={`px-3 py-1 rounded-full font-medium ${
+                className={`flex-1 h-14 rounded-xl font-bold transition-all text-sm cursor-pointer select-none active:scale-98 ${
                   mode === "percent"
-                    ? "bg-amber-500 text-white"
-                    : "text-gray-700 dark:text-gray-300"
+                    ? "bg-amber-500 text-white shadow-md shadow-amber-500/10"
+                    : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-900"
                 }`}
               >
                 % Percentage
@@ -138,54 +147,57 @@ export default function DiscountDialog({
               <button
                 type="button"
                 onClick={() => setMode("value")}
-                className={`px-3 py-1 rounded-full font-medium ${
+                className={`flex-1 h-14 rounded-xl font-bold transition-all text-sm cursor-pointer select-none active:scale-98 ${
                   mode === "value"
-                    ? "bg-amber-500 text-white"
-                    : "text-gray-700 dark:text-gray-300"
+                    ? "bg-amber-500 text-white shadow-md shadow-amber-500/10"
+                    : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-900"
                 }`}
               >
                 EGP Value
               </button>
             </div>
+          </div>
 
-            {/* EGP Value mode: keep manual input + preview as-is */}
-            {mode === "value" && (
-              <div className="space-y-1.5">
-                <label
-                  htmlFor="discount-input"
-                  className="text-sm font-medium text-gray-700 dark:text-gray-200"
-                >
-                  Discount
-                </label>
-                <Input
+          {/* Mode contents */}
+          {mode === "value" ? (
+            <div className="space-y-2">
+              <label
+                htmlFor="discount-input"
+                className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block"
+              >
+                Discount Value (EGP)
+              </label>
+              <div className="relative">
+                <input
                   id="discount-input"
                   type="number"
                   min={0}
                   max={subtotal}
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
+                  placeholder="Enter discount amount..."
+                  className="w-full h-16 rounded-2xl border-2 border-slate-250 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 font-bold px-4 text-lg focus:border-amber-500 dark:focus:border-amber-500 focus:outline-none transition-colors text-slate-900 dark:text-white"
                 />
                 {preview && (
-                  <p className="text-xs text-gray-500">
-                    = {preview.percent.toFixed(1)}%
-                  </p>
-                )}
-                {isOverLimit && (
-                  <p className="text-xs font-bold text-red-500 mt-1 animate-pulse">
-                    Discount value must not exceed 49% of subtotal (max: {maxDiscountAllowed.toFixed(2)} EGP) / قيمة الخصم يجب ألا تتجاوز ٤٩٪ من المجموع
-                  </p>
+                  <div className="absolute right-4 top-1/2 -translate-y-1/2 text-sm font-bold text-slate-400 dark:text-slate-500">
+                    ≈ {preview.percent.toFixed(1)}%
+                  </div>
                 )}
               </div>
-            )}
-          </div>
-
-          {/* Preset buttons - only in percent mode */}
-          {mode === "percent" && (
-            <div className="space-y-2">
-              <p className="text-xs font-medium text-gray-600 dark:text-gray-300">
+              {isOverLimit && (
+                <p className="text-xs font-bold text-red-500 mt-1 animate-pulse select-none">
+                  Discount value must not exceed 49% of subtotal (max: {maxDiscountAllowed.toFixed(2)} EGP) / قيمة الخصم يجب ألا تتجاوز ٤٩٪ من المجموع
+                </p>
+              )}
+            </div>
+          ) : (
+            /* Preset buttons - only in percent mode */
+            <div className="space-y-3">
+              <p className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider text-center flex items-center gap-1.5 justify-center">
+                <Tag size={12} />
                 Preset discounts
               </p>
-              <div className="flex flex-wrap gap-2">
+              <div className="grid grid-cols-3 gap-2 w-full">
                 {discValues
                   .filter((p) => p > 0)
                   .map((p, idx) => (
@@ -193,12 +205,11 @@ export default function DiscountDialog({
                       key={`${p}-${idx}`}
                       type="button"
                       onClick={() => handlePresetClick(p)}
-                      className={`px-4 py-2 rounded-xl text-sm font-semibold border transition
-                        ${
-                          selectedPreset === p
-                            ? "bg-amber-500 text-white border-amber-600"
-                            : "bg-white text-gray-800 border-gray-200 hover:bg-amber-50 hover:border-amber-200 dark:bg-gray-900 dark:text-gray-100 dark:border-gray-700 dark:hover:bg-amber-900/30 dark:hover:border-amber-800"
-                        }`}
+                      className={`h-14 font-black rounded-2xl active:scale-95 transition-all text-base cursor-pointer flex items-center justify-center select-none border ${
+                        selectedPreset === p
+                          ? "bg-amber-500 text-white border-amber-600 shadow-lg shadow-amber-500/20"
+                          : "bg-slate-50 dark:bg-slate-950 hover:bg-slate-100 dark:hover:bg-slate-850 text-slate-800 dark:text-slate-200 border-slate-200 dark:border-slate-800"
+                      }`}
                     >
                       {p}%
                     </button>
@@ -208,29 +219,40 @@ export default function DiscountDialog({
           )}
         </div>
 
-        <DialogFooter className="mt-4 flex flex-wrap gap-2 justify-between">
-          <div className="flex gap-2">
-            <Button type="button" variant="outline" onClick={handleRemove}>
+        {/* Footer actions */}
+        <div className="flex flex-col sm:flex-row gap-3 mt-2 w-full">
+          <div className="flex flex-1 gap-3">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleRemove}
+              className="flex-1 h-16 rounded-2xl text-sm font-extrabold cursor-pointer border border-red-200 dark:border-red-950 text-red-650 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/20 active:scale-95 transition-all duration-75 select-none"
+            >
               Remove Discount
             </Button>
             <Button
               type="button"
               variant="outline"
               onClick={handleCancel}
+              className="flex-1 h-16 rounded-2xl text-sm font-extrabold cursor-pointer border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 active:scale-95 transition-all duration-75 select-none"
             >
               Cancel
             </Button>
           </div>
           {mode === "value" && (
-            <div className="flex gap-2">
-              <Button type="button" disabled={isOverLimit} onClick={handleApply}>
-                Apply
-              </Button>
-            </div>
+            <Button
+              type="button"
+              disabled={isOverLimit}
+              onClick={handleApply}
+              className="w-full sm:w-auto sm:min-w-[120px] h-16 rounded-2xl text-sm font-extrabold bg-amber-500 hover:bg-amber-600 text-white cursor-pointer active:scale-95 transition-all duration-75 select-none shadow-lg shadow-amber-900/10"
+            >
+              Apply
+            </Button>
           )}
-        </DialogFooter>
+        </div>
       </DialogContent>
     </Dialog>
   );
 }
+
 

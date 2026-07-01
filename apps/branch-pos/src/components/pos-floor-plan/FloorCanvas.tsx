@@ -42,6 +42,8 @@ interface FloorCanvasProps {
   handleAlignSelected: (alignment: 'left' | 'right' | 'top' | 'bottom') => void;
   handleDistributeSelected: (direction: 'horizontal' | 'vertical') => void;
   setIsDeleteBatchOpen: (val: boolean) => void;
+  openChecks?: any[];
+  businessDate?: string;
 }
 
 export function FloorCanvas({
@@ -65,7 +67,9 @@ export function FloorCanvas({
   containerSize,
   handleAlignSelected,
   handleDistributeSelected,
-  setIsDeleteBatchOpen
+  setIsDeleteBatchOpen,
+  openChecks = [],
+  businessDate
 }: FloorCanvasProps) {
   return (
     <div
@@ -171,7 +175,7 @@ export function FloorCanvas({
                       : table.belongsToCurrentUser === false
                       ? 'border-slate-500/40 bg-slate-900/10 hover:scale-100 cursor-not-allowed shadow-none opacity-60'
                       : `${config.bg} ${config.border} hover:scale-102 hover:shadow-lg`
-                  }`}
+                  } ${!isEditMode ? 'overflow-hidden' : ''}`}
                   style={{
                     left: `${leftVal}px`,
                     top: `${topVal}px`,
@@ -180,6 +184,21 @@ export function FloorCanvas({
                     touchAction: 'none'
                   }}
                 >
+                  {/* Floating Custom Check Name Badge */}
+                  {!isEditMode && (() => {
+                    const tableChecks = openChecks ? openChecks.filter(
+                      (c) => c.tableId === table.id && c.chkDate === businessDate
+                    ) : [];
+                    if (tableChecks.length === 1 && tableChecks[0].tableName) {
+                      return (
+                        <div className="absolute top-0 left-0 bg-amber-500 dark:bg-amber-600 text-white text-[9px] sm:text-[10px] font-black px-1.5 py-0.5 rounded-br shadow-sm z-20 max-w-[85%] truncate select-none border-b border-r border-white/20 uppercase tracking-wider">
+                          {tableChecks[0].tableName}
+                        </div>
+                      );
+                    }
+                    return null;
+                  })()}
+
                   {/* Operational Table Lock Overlay */}
                   {!isEditMode && tableLock && (
                     <div

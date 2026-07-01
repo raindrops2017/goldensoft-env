@@ -314,45 +314,61 @@ export function CartItems({
         open={!!compItem}
         onOpenChange={(open) => !open && setCompItem(null)}
       >
-        <DialogContent className="sm:max-w-2xl max-w-[95vw] bg-white dark:bg-slate-900 rounded-3xl p-6 shadow-2xl border border-slate-100 dark:border-slate-800 font-sans">
+        <DialogContent className="sm:max-w-md max-w-[calc(100%-2rem)] bg-white dark:bg-slate-900 rounded-3xl p-6 shadow-2xl border border-slate-100 dark:border-slate-800 font-sans">
           <DialogHeader>
-            <DialogTitle className="text-slate-900 dark:text-white font-black text-xl">Complimentary item</DialogTitle>
-            <DialogDescription className="text-slate-650 dark:text-slate-350 text-base mt-2">
+            <DialogTitle className="text-2xl font-black text-slate-900 dark:text-white leading-tight flex items-center gap-3">
+              <div className="p-2.5 bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 rounded-2xl border border-amber-100 dark:border-amber-950/30">
+                <Gift size={22} />
+              </div>
+              <div className="flex flex-col">
+                <span className="tracking-tight select-none">Complimentary Item</span>
+                <span className="text-xs font-semibold text-slate-400 dark:text-slate-500 mt-0.5 select-none">
+                  Comp or gift an item to the guest
+                </span>
+              </div>
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="py-4 select-none">
+            <DialogDescription className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed">
               {compItem ? (
-                <>Apply 100% discount to &quot;{compItem.itemName || menuItems.find(m => m.id === compItem.menuItemId)?.name || "Unknown Item"}&quot;?</>
+                <>Apply 100% discount to <strong>&quot;{compItem.itemName || menuItems.find(m => m.id === compItem.menuItemId)?.name || "Unknown Item"}&quot;</strong>?</>
               ) : null}
             </DialogDescription>
-          </DialogHeader>
-          <DialogFooter className="flex flex-col sm:flex-row gap-3 w-full sm:justify-end mt-6 pt-4 border-t border-slate-100 dark:border-slate-800 bg-transparent dark:bg-transparent !p-0 !m-0">
-            <Button
-              variant="outline"
-              className="h-16 text-lg font-semibold active:scale-95 active:bg-slate-200 dark:bg-slate-800 dark:text-slate-250 dark:border-slate-700 dark:hover:bg-slate-700 transition-all duration-75 select-none w-full sm:w-auto"
-              onClick={() => setCompItem(null)}
-            >
-              Cancel
-            </Button>
-            {compItem && compItem.entQty > 0 && (
+          </div>
+
+          <div className="flex flex-col sm:flex-row gap-3 mt-2 w-full">
+            <div className="flex flex-1 gap-3">
               <Button
-                variant="destructive"
-                className="h-16 text-lg font-semibold active:scale-95 transition-all duration-75 select-none w-full sm:w-auto dark:bg-red-950/20 dark:text-red-400 dark:border-red-900 dark:hover:bg-red-900/20"
-                onClick={() => {
-                  onCompItem?.(compItem.id || compItem.menuItemId, -1);
-                  setCompItem(null);
-                }}
+                variant="outline"
+                className="flex-1 h-16 rounded-2xl text-sm font-extrabold cursor-pointer border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 active:scale-95 transition-all duration-75 select-none"
+                onClick={() => setCompItem(null)}
               >
-                Cancel Comp (-1)
+                Cancel
               </Button>
-            )}
+              {compItem && compItem.entQty > 0 && (
+                <Button
+                  variant="destructive"
+                  className="flex-1 h-16 rounded-2xl text-sm font-extrabold cursor-pointer border border-red-200 dark:border-red-950 text-red-650 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/20 active:scale-95 transition-all duration-75 select-none"
+                  onClick={() => {
+                    onCompItem?.(compItem.id || compItem.menuItemId, -1);
+                    setCompItem(null);
+                  }}
+                >
+                  Remove Comp
+                </Button>
+              )}
+            </div>
             <Button
-              className="h-16 text-lg font-semibold active:scale-95 transition-all duration-75 select-none w-full sm:w-auto bg-brand-500 hover:bg-brand-600 dark:bg-brand-600 dark:hover:bg-brand-500 text-white"
+              className="w-full sm:w-auto sm:min-w-[120px] h-16 rounded-2xl text-sm font-extrabold bg-brand-500 hover:bg-brand-650 dark:bg-brand-600 dark:hover:bg-brand-500 text-white cursor-pointer active:scale-95 transition-all duration-75 select-none shadow-lg shadow-brand-900/10"
               onClick={() => {
                 if (compItem) onCompItem?.(compItem.id || compItem.menuItemId, 1);
                 setCompItem(null);
               }}
             >
-              {compItem && compItem.entQty > 0 ? "Confirm Comp (+1)" : "Confirm"}
+              {compItem && compItem.entQty > 0 ? "Confirm (+1)" : "Confirm"}
             </Button>
-          </DialogFooter>
+          </div>
         </DialogContent>
       </Dialog>
 

@@ -124,7 +124,7 @@ export class ChecksPrinter {
     if (check.items) {
       for (const item of check.items) {
         // Exclude fully voided items
-        const activeQty = item.qty - (item.voidQty || 0);
+        const activeQty = item.qty;
         if (activeQty <= 0) continue;
 
         const compQty = item.entQty || 0;
@@ -187,7 +187,7 @@ export class ChecksPrinter {
 
     // --- TOTALS SECTION ---
     // Subtotal
-    const subtotalText = `${check.total.toFixed(2)} EGP`;
+    const subtotalText = `${(check.net + check.discount).toFixed(2)} EGP`;
     appendLine(this.justifyLine('Subtotal / المجموع الفرعي', subtotalText));
 
     // Discount
@@ -219,7 +219,7 @@ export class ChecksPrinter {
     appendLine(this.drawDivider('='), { align: 'center' });
 
     // Net Total (Bold & Larger)
-    const netText = `${check.net.toFixed(2)} EGP`;
+    const netText = `${check.total.toFixed(2)} EGP`;
     appendLine(this.justifyLine('NET TOTAL / الإجمالي', netText), { align: 'left', bold: true });
     appendLine(this.drawDivider('='), { align: 'center' });
 

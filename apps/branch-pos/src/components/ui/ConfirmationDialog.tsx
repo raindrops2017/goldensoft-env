@@ -1,5 +1,13 @@
 import type { ReactNode } from 'react';
 import { Button } from './button';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from './dialog';
+import { AlertTriangle, HelpCircle } from 'lucide-react';
 
 interface ConfirmationDialogProps {
   isOpen: boolean;
@@ -22,26 +30,38 @@ export function ConfirmationDialog({
   cancelText = 'Cancel',
   isDestructive = false,
 }: ConfirmationDialogProps) {
-  if (!isOpen) return null;
+  const iconBg = isDestructive 
+    ? "bg-red-50 dark:bg-red-950/40 text-red-650 dark:text-red-400 border-red-100 dark:border-red-950/30" 
+    : "bg-indigo-50 dark:bg-indigo-950/40 text-indigo-650 dark:text-indigo-400 border-indigo-100 dark:border-indigo-950/30";
+  const Icon = isDestructive ? AlertTriangle : HelpCircle;
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-white dark:bg-[#15111d] border border-slate-200 dark:border-white/5 rounded-[2rem] p-6 max-w-md w-full shadow-2xl flex flex-col gap-4 animate-in fade-in zoom-in duration-100">
-        <div>
-          <h3 className="text-lg font-black tracking-wider text-slate-900 dark:text-white uppercase">
-            {title}
-          </h3>
-          <div className="text-sm text-slate-500 dark:text-gray-400 mt-2 leading-relaxed">
+    <Dialog open={isOpen} onOpenChange={(val) => !val && onClose()}>
+      <DialogContent className="sm:max-w-md max-w-[calc(100%-2rem)] bg-white dark:bg-slate-900 rounded-3xl p-6 shadow-2xl border border-slate-100 dark:border-slate-800 font-sans">
+        <DialogHeader>
+          <DialogTitle className="text-2xl font-black text-slate-850 dark:text-white leading-tight flex items-center gap-3">
+            <div className={`p-2.5 rounded-2xl border ${iconBg}`}>
+              <Icon size={22} />
+            </div>
+            <div className="flex flex-col">
+              <span className="tracking-tight select-none">{title}</span>
+            </div>
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="py-4 select-none">
+          <DialogDescription className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed">
             {description}
-          </div>
+          </DialogDescription>
         </div>
 
-        <div className="flex gap-3 justify-end mt-2">
+        {/* Action buttons */}
+        <div className="flex gap-3 mt-2">
           <Button
             type="button"
             variant="outline"
             onClick={onClose}
-            className="h-12 rounded-xl text-sm font-bold border-slate-200 dark:border-white/10 dark:bg-[#1a1525] dark:text-white cursor-pointer active:scale-95"
+            className="flex-1 h-16 rounded-2xl text-sm font-extrabold cursor-pointer border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 active:scale-95 select-none"
           >
             {cancelText}
           </Button>
@@ -51,16 +71,17 @@ export function ConfirmationDialog({
               onConfirm();
               onClose();
             }}
-            className={`h-12 rounded-xl text-sm font-bold text-white cursor-pointer active:scale-95 ${
+            className={`flex-1 h-16 rounded-2xl text-sm font-extrabold text-white cursor-pointer active:scale-95 shadow-lg select-none ${
               isDestructive
-                ? 'bg-red-600 hover:bg-red-700'
-                : 'bg-indigo-600 hover:bg-indigo-700'
+                ? 'bg-red-650 hover:bg-red-700 dark:bg-red-600 dark:hover:bg-red-750 shadow-red-900/10'
+                : 'bg-indigo-650 hover:bg-indigo-750 dark:bg-indigo-600 dark:hover:bg-indigo-750 shadow-indigo-900/10'
             }`}
           >
             {confirmText}
           </Button>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
+

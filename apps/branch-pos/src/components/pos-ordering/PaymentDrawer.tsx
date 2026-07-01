@@ -4,6 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { X, Search, Banknote, CreditCard, UserCheck, Layers, Award, User, ShieldCheck, Delete } from "lucide-react";
 import type { PaymentDrawerProps, PaymentFormData } from "./PaymentDrawer.types";
 import { paymentSchema } from "./PaymentDrawer.types";
+import { calculateSubtotal } from "@goldensoft/core-schemas";
 import { useCustomers } from "@/hooks/api/useChecksApi";
 import { SupervisorOverrideDialog } from "./SupervisorOverrideDialog";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -129,7 +130,13 @@ export default function PaymentDrawer({
   const formChkStut = useWatch({ control, name: "chkStut" });
 
   // Calculate dynamic displayed total
-  const netPriceOnly = items.reduce((acc, item) => acc + (item.quantity * item.unitPrice), 0);
+  const netPriceOnly = calculateSubtotal(
+    items.map((item) => ({
+      qty: item.quantity,
+      entQty: item.entQty || 0,
+      itemPrice: item.unitPrice,
+    }))
+  );
   const displayedTotal = Number(((formChkStut === 8 || formChkStut === 11 || isFoodTest)
     ? netPriceOnly
     : formDiscountAmount > 0 
