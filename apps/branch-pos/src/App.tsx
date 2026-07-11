@@ -5,6 +5,10 @@ import { ProtectedRoute } from './components/auth/ProtectedRoute';
 import { FloorPlan } from './routes/pos/din-in/FloorPlan';
 import TableOrder from './routes/pos/din-in/TableOrder';
 import TakeawayOrder from './routes/pos/takeaway/TakeawayOrder';
+import DeliveryOrder from './routes/pos/delivery/DeliveryOrder';
+import DeliveryDashboard from './routes/pos/delivery/DeliveryDashboard';
+import DeliveryDispatch from './routes/pos/delivery/DeliveryDispatch';
+import NewCustomerPage from './routes/pos/delivery/NewCustomerPage';
 import { useThemeStore } from './store/useThemeStore';
 import { useFullscreenStore } from './store/useFullscreenStore';
 import { useEffect } from 'react';
@@ -36,6 +40,22 @@ const routes = createBrowserRouter([
       {
         path: "/takeaway",
         element: <TakeawayOrder />
+      },
+      {
+        path: "/delivery",
+        element: <DeliveryDashboard />
+      },
+      {
+        path: "/delivery/dispatch",
+        element: <DeliveryDispatch />
+      },
+      {
+        path: "/delivery/order",
+        element: <DeliveryOrder />
+      },
+      {
+        path: "/delivery/customer/new",
+        element: <NewCustomerPage />
       }
     ]
   },

@@ -27,6 +27,7 @@ import checksRoutes from './modules/checks/checks.routes';
 import optionsRoutes from './modules/options/options.routes';
 import logsRoutes from './modules/logs/logs.routes';
 import customersRoutes from './modules/customers/customers.routes';
+import deliveryRoutes from './modules/delivery/delivery.routes';
 
 app.use(cors({
   origin: true,
@@ -43,6 +44,7 @@ app.use('/api/checks', checksRoutes);
 app.use('/api/options', optionsRoutes);
 app.use('/api/logs', logsRoutes);
 app.use('/api/customers', customersRoutes);
+app.use('/api/delivery', deliveryRoutes);
 
 app.get('/api/health', async (req: Request, res: Response) => {
   try {

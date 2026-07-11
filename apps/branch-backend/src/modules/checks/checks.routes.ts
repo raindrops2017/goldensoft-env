@@ -241,6 +241,7 @@ router.post('/', requirePermission([PERMISSIONS.CHECK_CREATE]), checksController
 router.post('/:id/items', checksController.addCheckItem);
 router.post('/:id/split', requireSplitPermission, checksController.splitCheck);
 router.post('/:id/print', requirePrintPermission, checksController.printCheck);
+router.post('/batch-close', requirePermission([PERMISSIONS.CHECK_CLOSE]), checksController.batchCloseChecks.bind(checksController));
 router.post('/:id/close', requirePermission([PERMISSIONS.CHECK_CLOSE]), checksController.closeCheck.bind(checksController));
 
 
@@ -254,6 +255,6 @@ router.put('/:id/table-transfer', requireTableTransferPermission, checksControll
 router.put('/:id/waiter-transfer', requireWaiterTransferPermission, checksController.transferWaiter.bind(checksController));
 router.put('/:id/guest-count', requireGuestCountPermission, checksController.updateGuestCount.bind(checksController));
 router.put('/:id/table-name', checksController.updateTableName.bind(checksController));
-router.put('/:id/customer', checksController.updateCustomerInfo.bind(checksController));
+router.put('/:id/customer', requirePermission([PERMISSIONS.DELIVERY_CUSTOMER_EDIT]), checksController.updateCustomerInfo.bind(checksController));
 
 export default router;

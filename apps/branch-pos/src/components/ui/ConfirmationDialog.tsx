@@ -73,8 +73,8 @@ export function ConfirmationDialog({
             }}
             className={`flex-1 h-16 rounded-2xl text-sm font-extrabold text-white cursor-pointer active:scale-95 shadow-lg select-none ${
               isDestructive
-                ? 'bg-red-650 hover:bg-red-700 dark:bg-red-600 dark:hover:bg-red-750 shadow-red-900/10'
-                : 'bg-indigo-650 hover:bg-indigo-750 dark:bg-indigo-600 dark:hover:bg-indigo-750 shadow-indigo-900/10'
+                ? 'bg-red-600 hover:bg-red-700 dark:bg-red-600 dark:hover:bg-red-700 shadow-red-900/10'
+                : 'bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-600 dark:hover:bg-indigo-700 shadow-indigo-900/10'
             }`}
           >
             {confirmText}

@@ -42,7 +42,8 @@ export const PERMISSIONS = {
   TABLES_EDIT: 'tables:edit',
   CHECK_WAITER_TRANSFER: 'check.waiter:transfer',
   HISTORICAL_CHECKS_VIEW: 'historical_checks:view',
-  CHECK_GUEST_DECREASE: 'check.guest:decrease'
+  CHECK_GUEST_DECREASE: 'check.guest:decrease',
+  DELIVERY_CUSTOMER_EDIT: 'delivery.customer:edit'
 } as const;
 
 export type Permission = typeof PERMISSIONS[keyof typeof PERMISSIONS];
@@ -91,5 +92,6 @@ export const permissionsList = [
   { name: PERMISSIONS.TABLES_EDIT, description: 'Manage sections and table layouts' },
   { name: PERMISSIONS.CHECK_WAITER_TRANSFER, description: 'Transfer checks to other waiters' },
   { name: PERMISSIONS.HISTORICAL_CHECKS_VIEW, description: 'View historical checks' },
-  { name: PERMISSIONS.CHECK_GUEST_DECREASE, description: 'Decrease guest count on checks' }
+  { name: PERMISSIONS.CHECK_GUEST_DECREASE, description: 'Decrease guest count on checks' },
+  { name: PERMISSIONS.DELIVERY_CUSTOMER_EDIT, description: 'Edit or change delivery customer data on checks' }
 ];

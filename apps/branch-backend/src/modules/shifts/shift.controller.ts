@@ -1,16 +1,12 @@
 import { Request, Response } from 'express';
-import { OpenShiftSchema } from '@goldensoft/core-schemas';
+import { CloseShiftSchema, CloseDaySchema } from '@goldensoft/core-schemas';
 import { shiftService } from './shift.service';
 
 export class ShiftController {
   async getCurrent(req: Request, res: Response) {
     try {
-      const currentShift = await shiftService.getCurrentShift();
-
-      if (!currentShift) {
-        res.json({ success: true, data: null });
-        return;
-      }
+      const userId = req.user?.userId;
+      const currentShift = await shiftService.getCurrentShift(userId);
 
       res.json({ success: true, data: currentShift });
     } catch (error) {
@@ -19,32 +15,58 @@ export class ShiftController {
     }
   }
 
-  async openShift(req: Request, res: Response) {
+  async closeShift(req: Request, res: Response) {
     try {
-      const parsed = OpenShiftSchema.safeParse(req.body);
+      const parsed = CloseShiftSchema.safeParse(req.body);
       if (!parsed.success) {
         res.status(400).json({ success: false, error: 'Invalid input', data: parsed.error.format() });
         return;
       }
 
-      const { startingCash } = parsed.data;
       const userId = req.user?.userId;
-
       if (!userId) {
         res.status(401).json({ success: false, error: 'Unauthorized' });
         return;
       }
 
-      const newShift = await shiftService.openShift(userId, startingCash);
+      const { actualClosingCash } = parsed.data;
+      const nextShift = await shiftService.closeShift(userId, actualClosingCash);
 
-      res.json({ success: true, data: newShift });
+      res.json({ success: true, data: nextShift });
     } catch (error: any) {
-      if (error.message === 'A shift is already open') {
-        res.status(400).json({ success: false, error: error.message });
+      console.error('Error closing shift:', error);
+      res.status(error.message.includes('Shift 3') ? 400 : 500).json({ 
+        success: false, 
+        error: error.message || 'Internal server error' 
+      });
+    }
+  }
+
+  async closeBusinessDay(req: Request, res: Response) {
+    try {
+      const parsed = CloseDaySchema.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({ success: false, error: 'Invalid input', data: parsed.error.format() });
         return;
       }
-      console.error('Error opening shift:', error);
-      res.status(500).json({ success: false, error: 'Internal server error' });
+
+      const userId = req.user?.userId;
+      if (!userId) {
+        res.status(401).json({ success: false, error: 'Unauthorized' });
+        return;
+      }
+
+      const { actualClosingCash } = parsed.data;
+      const result = await shiftService.closeBusinessDay(userId, actualClosingCash);
+
+      res.json({ success: true, data: result });
+    } catch (error: any) {
+      console.error('Error closing business day:', error);
+      const isValidationError = error.message.includes('checks are still open');
+      res.status(isValidationError ? 400 : 500).json({ 
+        success: false, 
+        error: error.message || 'Internal server error' 
+      });
     }
   }
 }

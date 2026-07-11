@@ -7,7 +7,11 @@ import type {
   EntCheckItemInput,
   CheckWithItems,
   SplitCheckInput,
-  CloseCheckInput
+  CloseCheckInput,
+  DeliveryZone,
+  DeliveryCustomer,
+  DeliveryPilot,
+  CreateDeliveryCustomerInput
 } from '@goldensoft/core-schemas';
 
 export const useOpenChecks = () => {
@@ -30,6 +34,49 @@ export const useCustomers = () => {
   });
 };
 
+export const useDeliveryZones = (all = false) => {
+  return useQuery({
+    queryKey: ['deliveryZones', all],
+    queryFn: async () => {
+      const res = await api.get(`/delivery/zones?all=${all}`);
+      return res.data.data as DeliveryZone[];
+    },
+  });
+};
+
+export const useDeliveryPilots = (all = false) => {
+  return useQuery({
+    queryKey: ['deliveryPilots', all],
+    queryFn: async () => {
+      const res = await api.get(`/delivery/pilots?all=${all}`);
+      return res.data.data as DeliveryPilot[];
+    },
+  });
+};
+
+export const useSearchDeliveryCustomer = (phone: string, options?: { enabled?: boolean }) => {
+  return useQuery({
+    queryKey: ['searchDeliveryCustomer', phone],
+    queryFn: async () => {
+      const res = await api.get(`/delivery/customers/search?phone=${phone}`);
+      return res.data.data as DeliveryCustomer[];
+    },
+    enabled: options?.enabled ?? false,
+  });
+};
+
+export const useCustomerLastOrder = (customerId: string, options?: { enabled?: boolean }) => {
+  return useQuery({
+    queryKey: ['customerLastOrder', customerId],
+    queryFn: async () => {
+      if (!customerId) return null;
+      const res = await api.get(`/delivery/customers/${customerId}/last-order`);
+      return res.data.data;
+    },
+    enabled: options?.enabled ?? !!customerId,
+  });
+};
+
 export const useHistoricalChecks = (filters: any) => {
   return useQuery({
     queryKey: ['historicalChecks', filters],
@@ -42,6 +89,7 @@ export const useHistoricalChecks = (filters: any) => {
       if (filters.tableId) params.append('tableId', filters.tableId);
       if (filters.amountOperator) params.append('amountOperator', filters.amountOperator);
       if (filters.amountValue) params.append('amountValue', filters.amountValue);
+      if (filters.deliveryCustomerId) params.append('deliveryCustomerId', filters.deliveryCustomerId);
 
       const res = await api.get(`/checks/historical?${params.toString()}`);
       return res.data.data as CheckWithItems[];
@@ -147,8 +195,8 @@ export const useChecksApi = () => {
   });
 
   const updateCheckCustomerInfo = useMutation({
-    mutationFn: async ({ chkId, customerName, customerPhone }: { chkId: string, customerName?: string, customerPhone?: string }) => {
-      const res = await api.put(`/checks/${chkId}/customer`, { customerName, customerPhone });
+    mutationFn: async ({ chkId, customerName, customerPhone, deliveryCustomerId }: { chkId: string, customerName?: string, customerPhone?: string, deliveryCustomerId?: string }) => {
+      const res = await api.put(`/checks/${chkId}/customer`, { customerName, customerPhone, deliveryCustomerId });
       return res.data.data as CheckWithItems;
     }
   });
@@ -160,7 +208,117 @@ export const useChecksApi = () => {
     }
   });
 
+  const createDeliveryCustomer = useMutation({
+    mutationFn: async (data: CreateDeliveryCustomerInput) => {
+      const res = await api.post('/delivery/customers', data);
+      return res.data.data as DeliveryCustomer;
+    }
+  });
+
+  const updateDeliveryCustomer = useMutation({
+    mutationFn: async ({ id, data }: { id: string, data: CreateDeliveryCustomerInput }) => {
+      const res = await api.put(`/delivery/customers/${id}`, data);
+      return res.data.data as DeliveryCustomer;
+    }
+  });
+
+  const assignPilot = useMutation({
+    mutationFn: async ({ checkIds, pilotId }: { checkIds: string[], pilotId: string }) => {
+      const res = await api.put('/delivery/checks/assign-pilot', { checkIds, pilotId });
+      return res.data.data as CheckWithItems[];
+    }
+  });
+
+  const batchCloseChecks = useMutation({
+    mutationFn: async (data: { checkIds: string[], paymentMethod: string, supervisorPin?: string, supervisorId?: string }) => {
+      const res = await api.post('/checks/batch-close', data);
+      return res.data.data as CheckWithItems[];
+    }
+  });
+
+  const createDeliveryZone = useMutation({
+    mutationFn: async (data: any) => {
+      const res = await api.post('/delivery/zones', data);
+      return res.data.data;
+    }
+  });
+
+  const updateDeliveryZone = useMutation({
+    mutationFn: async ({ id, data }: { id: string, data: any }) => {
+      const res = await api.put(`/delivery/zones/${id}`, data);
+      return res.data.data;
+    }
+  });
+
+  const deactivateDeliveryZone = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await api.put(`/delivery/zones/${id}/deactivate`);
+      return res.data.data;
+    }
+  });
+
+  const createDeliveryPilot = useMutation({
+    mutationFn: async (data: any) => {
+      const res = await api.post('/delivery/pilots', data);
+      return res.data.data;
+    }
+  });
+
+  const updateDeliveryPilot = useMutation({
+    mutationFn: async ({ id, data }: { id: string, data: any }) => {
+      const res = await api.put(`/delivery/pilots/${id}`, data);
+      return res.data.data;
+    }
+  });
+
+  const deactivateDeliveryPilot = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await api.put(`/delivery/pilots/${id}/deactivate`);
+      return res.data.data;
+    }
+  });
+
+  const updateCheckDeliveryState = useMutation({
+    mutationFn: async ({ checkId, state }: { checkId: string, state: string }) => {
+      const res = await api.put(`/delivery/checks/${checkId}/state`, { state });
+      return res.data.data;
+    }
+  });
+
+  const dispatchChecks = useMutation({
+    mutationFn: async ({ checkIds, pilotId }: { checkIds: string[], pilotId: string }) => {
+      const res = await api.post('/delivery/checks/dispatch', { checkIds, pilotId });
+      return res.data.data;
+    }
+  });
+
+  const returnPilot = useMutation({
+    mutationFn: async (pilotId: string) => {
+      const res = await api.post(`/delivery/pilots/${pilotId}/return`);
+      return res.data.data;
+    }
+  });
+
+  const unassignCheckPilot = useMutation({
+    mutationFn: async (checkId: string) => {
+      const res = await api.put(`/delivery/checks/${checkId}/unassign`);
+      return res.data.data;
+    }
+  });
+
+  const arrivePilot = useMutation({
+    mutationFn: async (pilotId: string) => {
+      const res = await api.post(`/delivery/pilots/${pilotId}/arrive`);
+      return res.data.data;
+    }
+  });
+
   return {
+    updateCheckDeliveryState,
+    dispatchChecks,
+    returnPilot,
+    unassignCheckPilot,
+    arrivePilot,
     createCheck,
     addCheckItems,
     voidCheckItem,
@@ -174,7 +332,17 @@ export const useChecksApi = () => {
     updateCheckGuestCount,
     updateCheckTableName,
     updateCheckCustomerInfo,
-    closeCheck
+    closeCheck,
+    createDeliveryCustomer,
+    updateDeliveryCustomer,
+    assignPilot,
+    batchCloseChecks,
+    createDeliveryZone,
+    updateDeliveryZone,
+    deactivateDeliveryZone,
+    createDeliveryPilot,
+    updateDeliveryPilot,
+    deactivateDeliveryPilot
   };
 };
 

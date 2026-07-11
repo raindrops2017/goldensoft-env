@@ -103,7 +103,7 @@ export class ChecksPrinter {
     
     // Check & Table Info
     const chkNoStr = `Check #: ${check.chkNo}`;
-    const tableStr = check.tableName ? `Table: ${check.tableName}` : 'Order: Takeaway';
+    const tableStr = check.checkKindId === 2 ? 'Order: Delivery' : (check.tableName ? `Table: ${check.tableName}` : 'Order: Takeaway');
     appendLine(this.justifyLine(chkNoStr, tableStr));
 
     // Waiter & Cashier Info
@@ -115,6 +115,37 @@ export class ChecksPrinter {
     const printCountStr = `Prints: ${check.printCount + 1}`; // +1 represents this current print
     appendLine(this.justifyLine(guestCountStr, printCountStr));
     appendLine(this.drawDivider('-'), { align: 'center' });
+
+    // --- DELIVERY METADATA BLOCK ---
+    if (check.checkKindId === 2) {
+      appendLine('DELIVERY DETAILS / تفاصيل التوصيل', { bold: true });
+      const customerName = check.customerName || check.deliveryCustomer?.name || "";
+      const primaryPhoneObj = check.deliveryCustomer?.phones?.find((p: any) => p.isDefault) || check.deliveryCustomer?.phones?.[0];
+      const customerPhone = check.customerPhone || primaryPhoneObj?.phone || "";
+      const primaryAddrObj = check.deliveryCustomer?.addresses?.find((a: any) => a.isDefault) || check.deliveryCustomer?.addresses?.[0];
+      const address = check.deliveryAddress || primaryAddrObj?.address || "";
+      const floor = check.deliveryFloor || primaryAddrObj?.floor || "";
+      const unit = check.deliveryUnit || primaryAddrObj?.unit || "";
+      const landmark = check.deliveryLandmark || primaryAddrObj?.landmark || "";
+      const notes = check.deliveryNotes || primaryAddrObj?.notes || "";
+
+      if (customerName) appendLine(`Customer: ${customerName}`);
+      if (customerPhone) appendLine(`Phone: ${customerPhone}`);
+      if (address) appendLine(`Address: ${address}`);
+      const floorStr = floor ? `Floor: ${floor}` : '';
+      const unitStr = unit ? `Unit: ${unit}` : '';
+      const details = [floorStr, unitStr].filter(Boolean).join(', ');
+      if (details) appendLine(details);
+      if (landmark) appendLine(`Landmark: ${landmark}`);
+      if (notes) appendLine(`Deliv Notes: ${notes}`);
+      if (check.deliveryZone) {
+        appendLine(`Zone: ${check.deliveryZone.name}`);
+      }
+      if (check.deliveryPilot) {
+        appendLine(`Pilot: ${check.deliveryPilot.name}`);
+      }
+      appendLine(this.drawDivider('-'), { align: 'center' });
+    }
 
     // --- ITEMS LIST ---
     appendLine(this.justifyLine('Item / الصنف', 'Qty x Price   Total'), { bold: true });

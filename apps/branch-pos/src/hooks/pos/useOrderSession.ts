@@ -206,5 +206,6 @@ export function useOrderSession({
     discountPercent,
     clearCart,
     deliveryCharge,
+    setDeliveryCharge,
   };
 }

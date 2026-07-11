@@ -36,6 +36,7 @@ interface Props {
   menuItems?: MenuItem[];
   mode?: 'dining' | 'dine-in' | 'din-in' | 'takeaway' | 'delivery';
   mood?: 'dining' | 'dine-in' | 'din-in' | 'takeaway' | 'delivery';
+  deliveryCharge?: number;
 }
 
 export function CartSidebar(props: Props) {
@@ -56,6 +57,7 @@ export function CartSidebar(props: Props) {
     menuItems,
     mode,
     mood,
+    deliveryCharge,
   } = props;
 
   const activeMode = mode || mood;
@@ -118,6 +120,7 @@ export function CartSidebar(props: Props) {
           service={service}
           total={total}
           hideService={tableNo === "0" || activeMode === "takeaway" || activeMode === "delivery"}
+          deliveryCharge={deliveryCharge}
         />
       </div>
 
@@ -156,6 +159,7 @@ export function CartBottomSheet(props: Props & { isOpen: boolean }) {
     menuItems,
     mode,
     mood,
+    deliveryCharge,
   } = props;
 
   const activeMode = mode || mood;
@@ -249,6 +253,7 @@ export function CartBottomSheet(props: Props & { isOpen: boolean }) {
               service={service}
               total={total}
               hideService={tableNo === "0" || activeMode === "takeaway" || activeMode === "delivery"}
+              deliveryCharge={deliveryCharge}
             />
           </div>
         </div>

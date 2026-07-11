@@ -8,6 +8,7 @@ interface Props {
   total: number;
   hideService?: boolean;
   hideEntTax?: boolean;
+  deliveryCharge?: number;
 }
 
 export function CartFooter({
@@ -20,6 +21,7 @@ export function CartFooter({
   total,
   hideService,
   hideEntTax,
+  deliveryCharge,
 }: Props) {
   return (
     <>
@@ -36,6 +38,7 @@ export function CartFooter({
               value: discount, hide: discount === 0,
             },
             { label: "Service", value: service, hide: hideService },
+            { label: "Delivery", value: deliveryCharge || 0, hide: !deliveryCharge || deliveryCharge === 0 },
             { label: "Tax", value: tax },
             { label: "Ent Tax", value: enttax, hide: hideEntTax || enttax === 0 },
           ]

@@ -85,11 +85,17 @@ Data mapped for the sync engine must utilize SQLite's native JSON1 extension whe
 
 State: Use TanStack React Query for all server state/caching. Provide strict types for query responses and variables. Use native React state for UI.
 
-Forms: Always use react-hook-form combined with a validation library like zod for type-safe form schemas (import schemas from packages/core-schemas).
+Forms & Validation (CRITICAL): Always use `react-hook-form` combined with a validation library like `zod` for type-safe form schemas (import schemas from `@goldensoft/core-schemas`).
+- **No Ad-Hoc CRUD States**: Avoid "state explosion". Do not use clusters of individual `useState` hooks for form inputs or entity CRUD operations (e.g. separate states for street, floor, unit, zone). Group them into a single `react-hook-form` schema.
+- **No Imperative Validation Checks**: Never use manual input validation checks and manual toast triggers inside click handlers (e.g. `if (!name.trim()) toast.error(...)`). Bind all validation rules directly to the Zod schemas and display errors declaratively via `react-hook-form`'s `errors` object.
+- **Universal Application**: This rule strictly applies to all CRUD operations, inline additions, edit dialogs (such as adding phone numbers, addresses, settings configuration, etc.), and settings portals.
 
 Styling: Use standard Tailwind CSS utility classes. Avoid custom .css files.
 
-Components: Functional components only using .tsx. Strongly type all component Props. Arrow functions preferred. Export using named exports (except for lazy-loaded route pages).
+Components & File Length Limits (CRITICAL):
+- **Maximum File Length**: Component and page files should remain under 300 lines. Proactively split files exceeding this limit into smaller, dedicated sub-components, custom hooks, or utility files.
+- **Single Responsibility Principle**: Large layouts (like dashboards, dispatch boards, or ordering portals) must not be built as monolithic files. Break complex interfaces into a main controller page and a folder of cohesive sub-components.
+- **Specification**: Functional components only using `.tsx`. Strongly type all component `Props`. Arrow functions preferred. Export using named exports (except for lazy-loaded route pages).
 
 7. DUAL-SOCKET & SYNC ARCHITECTURE
 
@@ -140,6 +146,8 @@ When generating UI components for the POS, you must act as an expert UI/UX engin
 
 Touch-First Sizing: All interactive elements (buttons, inputs, keypad numbers) MUST have a massive touch target. Minimum height is 64px (Tailwind h-16). Waitstaff use tablets in fast-paced environments; they cannot be hunting for small buttons.
 
+Spacious Dialog Widths: POS Dialogs, configuration portals, and detail grids MUST use extra-wide sizing (minimum `max-w-5xl` for forms/pilots, `max-w-6xl` or `w-[90vw]` for data listings/dashboard browsers) to prevent cramped layouts and allow side-by-side inputs and tabular listings to read naturally.
+
 Instant Tactile Feedback: Every button must have distinct, immediate visual feedback on tap using active: and focus-visible: states (e.g., active:scale-95, active:bg-slate-200, transition-all duration-75). Never rely on hover: alone, as iPads do not hover.
 
 Clarity & Contrast: Use semantic colors heavily (bg-destructive for void/cancel, bg-primary for pay/success). Text must be large, highly legible, and completely non-selectable (select-none to prevent blue highlight boxes on double-taps).
@@ -168,3 +176,9 @@ All significant system mutations, POS checkout flow events, and security or conf
 - Ensure `logAction` is called upon successful execution of operations (e.g., checkout closure, voiding items, printing receipts, applying manual discounts, splitting checks, and shift management).
 - Action names must be strictly standardized (e.g., `CHECK_CLOSE`, `CHECK_VOID`, `CHECK_PRINT`, `CHECK_DISCOUNT_UPDATE`, `CHECK_SPLIT`, `CART_ADD_ITEM`, `CART_QTY_UPDATE`, `CART_ITEM_REMOVE`, `CART_ITEM_COMP`).
 - Pass detailed context including user, check, table, and specific action payload parameters to maintain a reliable audit trail.
+
+15. TAILWIND CSS COLOR CONSTRAINTS (CRITICAL)
+
+- **NO Custom Colors/Non-standard suffix values**: Never use non-standard Tailwind CSS colors or prefix values such as `slate-350`, `slate-355`, `slate-550`, `slate-650`, `slate-655`, `slate-750`, `slate-905`, `gray-450`, `indigo-650`, `emerald-450`, or any numeric suffixes that do not end in standard hundreds (e.g. 100, 200, 300, 400, 500, 600, 700, 800, 900, 950).
+- **NO #50 in Tailwind**: Do not use color suffix configurations ending in `50` (like `indigo-650` or `slate-350`), except for the standard `50` base color (e.g. `slate-50`, `indigo-50`).
+- Always use standard Tailwind CSS classes.

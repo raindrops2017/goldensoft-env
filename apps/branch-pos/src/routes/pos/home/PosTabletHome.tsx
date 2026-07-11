@@ -17,11 +17,10 @@ import {
   Minimize,
   UserRound,
   Database,
-  PlayCircle,
   Sun,
   Moon
 } from 'lucide-react';
-import { useCurrentShift, useOpenShift } from '@/hooks/api/useShiftApi';
+import { useCurrentShift, useCloseShift, useCloseDay } from '@/hooks/api/useShiftApi';
 import { toast } from 'sonner';
 
 type TileDef = {
@@ -120,42 +119,7 @@ function PosTile({ tile }: { tile: TileDef }) {
   );
 }
 
-function ActionTile({ 
-  label, 
-  icon, 
-  onClick, 
-  glowColor 
-}: { 
-  label: string; 
-  icon: React.ReactNode; 
-  onClick: () => void;
-  glowColor: string; 
-}) {
-  const baseClass =
-    "group relative flex aspect-[4/3] sm:aspect-square flex-col items-center justify-center overflow-hidden rounded-[1.5rem] sm:rounded-[2.5rem] border border-slate-200 bg-white/80 dark:border-white/10 dark:bg-white/5 p-4 sm:p-8 backdrop-blur-xl transition-all duration-500 ease-out active:scale-[0.98] shadow-md shadow-slate-100 dark:shadow-none";
 
-  const content = (
-    <>
-      <div className={`absolute inset-0 bg-gradient-to-b ${glowColor} opacity-0 transition-opacity duration-500 group-hover:opacity-20`} />
-      <div className="z-10 mb-3 sm:mb-6 transition-transform duration-500 group-hover:-translate-y-2 group-hover:scale-110">
-        {icon}
-      </div>
-      <span className="z-10 text-lg font-bold tracking-wider text-slate-800 dark:text-white/90 transition-colors duration-300 group-hover:text-slate-950 dark:group-hover:text-white sm:text-xl md:text-2xl">
-        {label}
-      </span>
-    </>
-  );
-
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`${baseClass} hover:-translate-y-1 hover:border-slate-300 dark:hover:border-white/20 hover:bg-slate-50/50 dark:hover:bg-white/10 hover:shadow-xl dark:hover:shadow-[0_20px_40px_-15px_rgba(0,0,0,0.5)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/60 sm:hover:-translate-y-2`}
-    >
-      {content}
-    </button>
-  );
-}
 
 function StatusBadge({
   isOnline,
@@ -198,11 +162,14 @@ export function PosTabletHome() {
   const { isDarkMode, toggleTheme } = useThemeStore();
   const { isFullscreen, toggleFullscreen } = useFullscreenStore();
 
-  const [isShiftModalOpen, setIsShiftModalOpen] = useState(false);
-  const [startingCash, setStartingCash] = useState('0');
+  const [isCloseShiftModalOpen, setIsCloseShiftModalOpen] = useState(false);
+  const [isCloseDayModalOpen, setIsCloseDayModalOpen] = useState(false);
+  const [closingCash, setClosingCash] = useState('0');
+  const [showEmptyDayConfirm, setShowEmptyDayConfirm] = useState(false);
 
-  const { data: currentShift, isLoading: shiftLoading, refetch: refetchShift } = useCurrentShift();
-  const openShiftMutation = useOpenShift();
+  const { data: currentShift, refetch: refetchShift } = useCurrentShift();
+  const closeShiftMutation = useCloseShift();
+  const closeDayMutation = useCloseDay();
 
 
   const handleLogout = () => {
@@ -335,14 +302,32 @@ const tiles: TileDef[] = useMemo(() => {
     return baseTiles;
   }, [can]);
 
-  const handleOpenShift = async () => {
+  const handleCloseShift = async () => {
     try {
-      await openShiftMutation.mutateAsync({ startingCash: parseFloat(startingCash) || 0 });
-      toast.success("Shift opened successfully!");
-      setIsShiftModalOpen(false);
+      await closeShiftMutation.mutateAsync({ actualClosingCash: parseFloat(closingCash) || 0 });
+      toast.success("Shift closed successfully! Next shift is now open.");
+      setIsCloseShiftModalOpen(false);
       refetchShift();
     } catch (error: any) {
-      toast.error(error.response?.data?.error || error.message || "Failed to open shift");
+      toast.error(error.response?.data?.error || error.message || "Failed to close shift");
+    }
+  };
+
+  const handleCloseDay = async (force = false) => {
+    const isEmpty = currentShift && (currentShift.expectedClosingCash || 0) === (currentShift.startingCash || 0);
+    if (isEmpty && !force) {
+      setShowEmptyDayConfirm(true);
+      return;
+    }
+
+    try {
+      await closeDayMutation.mutateAsync({ actualClosingCash: parseFloat(closingCash) || 0 });
+      toast.success("Business day closed successfully! New business day is now open.");
+      setIsCloseDayModalOpen(false);
+      setShowEmptyDayConfirm(false);
+      refetchShift();
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || error.message || "Failed to close business day");
     }
   };
 
@@ -459,20 +444,6 @@ const tiles: TileDef[] = useMemo(() => {
 
               {/* Tiles Grid */}
               <div className="grid grid-cols-2 gap-3 sm:gap-6 md:grid-cols-4 md:gap-8">
-                {!shiftLoading && !currentShift && (
-                  <ActionTile
-                    label="Open Shift"
-                    icon={
-                      <GlowingIcon
-                        icon={PlayCircle}
-                        gradient="bg-gradient-to-br from-emerald-400 to-green-600"
-                        shadow="bg-green-500"
-                      />
-                    }
-                    onClick={() => setIsShiftModalOpen(true)}
-                    glowColor="from-green-500/0 to-green-500"
-                  />
-                )}
                 {tiles.map((t) => (
                   <PosTile key={t.id} tile={t} />
                 ))}
@@ -497,81 +468,236 @@ const tiles: TileDef[] = useMemo(() => {
                 </div>
               </div>
               {/* Mobile Settings Button */}
-              <div className="sm:hidden">
-                
-                  <div className="flex items-center gap-4">
-              <div className="flex flex-col items-end">
-                  <span className="text-sm font-bold text-slate-900 dark:text-white">
-                    {user?.username || "User"}
-                  </span>
-                  {currentShift && (
-                    <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 mt-1 uppercase tracking-wider">
-                      Shift Open</span>
-                  )}
+              <div className="sm:hidden flex items-center gap-2">
+                {can(PERMISSIONS.WORK_SHIFT_CLOSE) && currentShift && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setClosingCash('0');
+                      setIsCloseShiftModalOpen(true);
+                    }}
+                    disabled={currentShift.shiftNumber >= 3}
+                    className={`h-10 px-3 rounded-xl font-bold shadow-md transition-all duration-75 active:scale-[0.93] text-[10px] uppercase tracking-wider ${
+                      currentShift.shiftNumber >= 3
+                        ? 'bg-slate-300 dark:bg-slate-800 text-slate-500 dark:text-slate-400 cursor-not-allowed shadow-none'
+                        : 'bg-gradient-to-r from-amber-500 to-orange-500 text-white active:brightness-95'
+                    }`}
+                    title={currentShift.shiftNumber >= 3 ? "Shift 3 can only be closed with EOD" : "Close Current Shift"}
+                  >
+                    Shift {currentShift.shiftNumber}
+                  </button>
+                )}
+                {can(PERMISSIONS.WORKDAY_CLOSE) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setClosingCash('0');
+                      setShowEmptyDayConfirm(false);
+                      setIsCloseDayModalOpen(true);
+                    }}
+                    className="h-10 px-3 rounded-xl font-bold bg-gradient-to-r from-red-500 to-rose-600 text-white shadow-md transition-all duration-75 active:scale-[0.93] text-[10px] uppercase tracking-wider active:brightness-95"
+                  >
+                    Close Day
+                  </button>
+                )}
+                <div className="flex items-center gap-2 ml-2">
+                  <div className="flex flex-col items-end">
+                    <span className="text-xs font-bold text-slate-900 dark:text-white">
+                      {user?.username || "User"}
+                    </span>
+                  </div>
+                  <div className="flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 dark:border-white/10 bg-white/50 dark:bg-white/5 backdrop-blur-md">
+                    <UserRound className="size-4 text-slate-700 dark:text-white/80" />
+                  </div>
                 </div>
-                <div className="flex h-12 w-12 items-center justify-center rounded-full border border-slate-200 dark:border-white/10 bg-white/50 dark:bg-white/5 backdrop-blur-md">
-                  <UserRound className="size-5 text-slate-700 dark:text-white/80" />
-                </div>
-            </div>
               </div>
             </div>
 
             <div className="hidden sm:flex items-center gap-4">
+              {can(PERMISSIONS.WORK_SHIFT_CLOSE) && currentShift && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setClosingCash('0');
+                    setIsCloseShiftModalOpen(true);
+                  }}
+                  disabled={currentShift.shiftNumber >= 3}
+                  className={`h-12 px-4 rounded-xl font-bold shadow-md transition-all duration-75 active:scale-95 text-xs uppercase tracking-wider flex items-center gap-2 select-none ${
+                    currentShift.shiftNumber >= 3
+                      ? 'bg-slate-200 dark:bg-slate-800/80 text-slate-400 dark:text-slate-500 cursor-not-allowed shadow-none'
+                      : 'bg-gradient-to-r from-amber-500 to-orange-500 text-white hover:brightness-115 active:brightness-95 shadow-orange-500/10 hover:shadow-orange-500/20'
+                  }`}
+                  title={currentShift.shiftNumber >= 3 ? "Shift 3 can only be closed with EOD" : "Close Current Shift"}
+                >
+                  Close Shift {currentShift.shiftNumber}
+                </button>
+              )}
+              {can(PERMISSIONS.WORKDAY_CLOSE) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setClosingCash('0');
+                    setShowEmptyDayConfirm(false);
+                    setIsCloseDayModalOpen(true);
+                  }}
+                  className="h-12 px-4 rounded-xl font-bold bg-gradient-to-r from-red-500 to-rose-600 text-white hover:brightness-115 active:brightness-95 shadow-md shadow-red-500/10 hover:shadow-red-500/20 transition-all duration-75 active:scale-95 text-xs uppercase tracking-wider flex items-center gap-2 select-none"
+                >
+                  Close Day
+                </button>
+              )}
               <div className="flex flex-col items-end">
-                  <span className="text-sm font-bold text-slate-900 dark:text-white">
-                    {user?.username || "User"}
-                  </span>
-                  {currentShift && (
-                    <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 mt-1 uppercase tracking-wider">
-                      Shift Open</span>
-                  )}
-                </div>
-                <div className="flex h-12 w-12 items-center justify-center rounded-full border border-slate-200 dark:border-white/10 bg-white/50 dark:bg-white/5 backdrop-blur-md">
-                  <UserRound className="size-5 text-slate-700 dark:text-white/80" />
-                </div>
+                <span className="text-sm font-bold text-slate-900 dark:text-white">
+                  {user?.username || "User"}
+                </span>
+                {currentShift && (
+                  <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 mt-1 uppercase tracking-wider">
+                    Shift {currentShift.shiftNumber} Open</span>
+                )}
+              </div>
+              <div className="flex h-12 w-12 items-center justify-center rounded-full border border-slate-200 dark:border-white/10 bg-white/50 dark:bg-white/5 backdrop-blur-md">
+                <UserRound className="size-5 text-slate-700 dark:text-white/80" />
+              </div>
             </div>
           </footer>
         </div>
 
-        {/* Open Shift Modal */}
-        {isShiftModalOpen && (
+        {/* Close Shift Modal */}
+        {isCloseShiftModalOpen && currentShift && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 backdrop-blur-sm bg-black/60">
             <div className="w-full max-w-md rounded-[2rem] border border-slate-200 dark:border-white/10 bg-white dark:bg-[#120a1c] p-6 shadow-2xl">
-              <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">Open Shift</h2>
-              <p className="text-slate-500 dark:text-white/60 mb-6 text-sm">Enter the starting cash amount to open the register for the day.</p>
+              <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">Close Shift {currentShift.shiftNumber}</h2>
+              <p className="text-slate-500 dark:text-white/60 mb-6 text-sm">
+                Enter the actual closing cash in the drawer. Closing this shift will automatically open Shift {currentShift.shiftNumber + 1}.
+              </p>
               
+              <div className="mb-6 p-4 rounded-2xl bg-slate-50 dark:bg-white/5 border border-slate-100 dark:border-white/5 space-y-2 select-none">
+                <div className="flex justify-between text-sm">
+                  <span className="text-slate-500 dark:text-white/60">Starting Cash</span>
+                  <span className="font-semibold text-slate-800 dark:text-white">{(currentShift.startingCash || 0).toFixed(2)} EGP</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-slate-500 dark:text-white/60">Expected Cash</span>
+                  <span className="font-bold text-emerald-600 dark:text-emerald-400">{(currentShift.expectedClosingCash || 0).toFixed(2)} EGP</span>
+                </div>
+              </div>
+
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 dark:text-white/80 mb-2">Starting Cash (EGP)</label>
-                  <div className="relative">
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={startingCash}
-                      onChange={(e) => setStartingCash(e.target.value)}
-                      className="w-full rounded-2xl border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 px-4 py-4 text-xl font-bold text-slate-900 dark:text-white outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 transition-colors"
-                      placeholder="0.00"
-                    />
-                  </div>
+                  <label className="block text-sm font-medium text-slate-700 dark:text-white/80 mb-2">Actual Closing Cash (EGP)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={closingCash}
+                    onChange={(e) => setClosingCash(e.target.value)}
+                    className="w-full rounded-2xl border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 px-4 py-4 text-xl font-bold text-slate-900 dark:text-white outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 transition-colors"
+                    placeholder="0.00"
+                  />
                 </div>
               </div>
 
               <div className="mt-8 flex gap-3">
                 <button
-                  onClick={() => setIsShiftModalOpen(false)}
-                  className="flex-1 rounded-full border border-slate-200 dark:border-white/10 bg-slate-100 dark:bg-white/5 py-4 font-bold text-slate-700 dark:text-white hover:bg-slate-200 dark:hover:bg-white/10 active:scale-95 transition-all"
+                  onClick={() => setIsCloseShiftModalOpen(false)}
+                  className="flex-1 rounded-full border border-slate-200 dark:border-white/10 bg-slate-100 dark:bg-white/5 py-4 font-bold text-slate-700 dark:text-white hover:bg-slate-200 dark:hover:bg-white/10 active:scale-[0.95] transition-all"
                 >
                   Cancel
                 </button>
                 <button
-                  onClick={handleOpenShift}
-                  disabled={openShiftMutation.isPending}
-                  className="flex-1 rounded-full bg-gradient-to-r from-emerald-500 to-green-600 py-4 font-bold text-white hover:brightness-110 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  onClick={handleCloseShift}
+                  disabled={closeShiftMutation.isPending}
+                  className="flex-1 rounded-full bg-gradient-to-r from-amber-500 to-orange-600 py-4 font-bold text-white hover:brightness-110 active:scale-[0.95] transition-all disabled:opacity-50"
                 >
-                  {openShiftMutation.isPending ? "Opening..." : "Open Shift"}
+                  {closeShiftMutation.isPending ? "Closing..." : "Close Shift"}
                 </button>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* Close Day Modal */}
+        {isCloseDayModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 backdrop-blur-sm bg-black/60">
+            <div className="w-full max-w-md rounded-[2rem] border border-slate-200 dark:border-white/10 bg-white dark:bg-[#120a1c] p-6 shadow-2xl">
+              {showEmptyDayConfirm ? (
+                <>
+                  <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">No Sales Recorded</h2>
+                  <p className="text-slate-500 dark:text-white/60 mb-6 text-sm">
+                    Warning: There are no sales recorded for the active business day ({currentShift?.businessDate}). Are you sure you want to close the business day?
+                  </p>
+                  <div className="mt-8 flex gap-3">
+                    <button
+                      onClick={() => setShowEmptyDayConfirm(false)}
+                      className="flex-1 rounded-full border border-slate-200 dark:border-white/10 bg-slate-100 dark:bg-white/5 py-4 font-bold text-slate-700 dark:text-white hover:bg-slate-200 dark:hover:bg-white/10 active:scale-[0.95] transition-all"
+                    >
+                      Back
+                    </button>
+                    <button
+                      onClick={() => handleCloseDay(true)}
+                      disabled={closeDayMutation.isPending}
+                      className="flex-1 rounded-full bg-gradient-to-r from-red-500 to-rose-600 py-4 font-bold text-white hover:brightness-110 active:scale-[0.95] transition-all disabled:opacity-50"
+                    >
+                      {closeDayMutation.isPending ? "Processing..." : "Yes, Close Day"}
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">Close Business Day</h2>
+                  <p className="text-slate-500 dark:text-white/60 mb-6 text-sm">
+                    {currentShift 
+                      ? `This will close the active Shift ${currentShift.shiftNumber} and lock the business day (${currentShift.businessDate}). All open checks must be resolved.`
+                      : "This will finalize and close the business day. All open checks must be resolved."
+                    }
+                  </p>
+                  
+                  {currentShift && (
+                    <div className="mb-6 p-4 rounded-2xl bg-slate-50 dark:bg-white/5 border border-slate-100 dark:border-white/5 space-y-2 select-none">
+                      <div className="flex justify-between text-sm">
+                        <span className="text-slate-500 dark:text-white/60">Starting Cash</span>
+                        <span className="font-semibold text-slate-800 dark:text-white">{(currentShift.startingCash || 0).toFixed(2)} EGP</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-slate-500 dark:text-white/60">Expected Cash</span>
+                        <span className="font-bold text-emerald-600 dark:text-emerald-400">{(currentShift.expectedClosingCash || 0).toFixed(2)} EGP</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {currentShift && (
+                    <div className="space-y-4 mb-6">
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 dark:text-white/80 mb-2">Actual Closing Cash (EGP)</label>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={closingCash}
+                          onChange={(e) => setClosingCash(e.target.value)}
+                          className="w-full rounded-2xl border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 px-4 py-4 text-xl font-bold text-slate-900 dark:text-white outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 transition-colors"
+                          placeholder="0.00"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="mt-8 flex gap-3">
+                    <button
+                      onClick={() => setIsCloseDayModalOpen(false)}
+                      className="flex-1 rounded-full border border-slate-200 dark:border-white/10 bg-slate-100 dark:bg-white/5 py-4 font-bold text-slate-700 dark:text-white hover:bg-slate-200 dark:hover:bg-white/10 active:scale-[0.95] transition-all"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={() => handleCloseDay(false)}
+                      disabled={closeDayMutation.isPending}
+                      className="flex-1 rounded-full bg-gradient-to-r from-red-500 to-rose-600 py-4 font-bold text-white hover:brightness-110 active:scale-[0.95] transition-all disabled:opacity-50"
+                    >
+                      {closeDayMutation.isPending ? "Processing..." : "Close Day"}
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         )}

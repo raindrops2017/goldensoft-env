@@ -2,6 +2,9 @@ import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { env } from '../env';
 import { JwtPayload, JwtPayloadSchema } from '@goldensoft/core-schemas';
+import { db } from '../db';
+import { users } from '../db/schema';
+import { eq } from 'drizzle-orm';
 
 declare global {
   namespace Express {
@@ -11,7 +14,7 @@ declare global {
   }
 }
 
-export const requireAuth = (req: Request, res: Response, next: NextFunction): void => {
+export const requireAuth = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   const authHeader = req.headers.authorization;
 
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -27,6 +30,17 @@ export const requireAuth = (req: Request, res: Response, next: NextFunction): vo
     
     if (!parsed.success) {
       res.status(401).json({ success: false, error: 'Unauthorized: Invalid token payload' });
+      return;
+    }
+
+    // Verify user still exists in the local database
+    const userExists = await db.select({ id: users.id })
+      .from(users)
+      .where(eq(users.id, parsed.data.userId))
+      .limit(1);
+
+    if (userExists.length === 0) {
+      res.status(401).json({ success: false, error: 'Unauthorized: Session user no longer exists' });
       return;
     }
 

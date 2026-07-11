@@ -10,8 +10,8 @@
     "dev:branch": "pnpm --parallel --filter @goldensoft/branch-backend --filter @goldensoft/branch-pos dev",
     "dev:all": "pnpm --parallel --filter \"./apps/**\" dev",
     "db:seed": "pnpm --filter @goldensoft/branch-backend db:seed && pnpm --filter @goldensoft/cloud-backend db:seed",
-    "tauri-branch-ui": "pnpm --filter @goldensoft/branch-pos dev",
-    "tauri-branch-ui:build": "pnpm --filter @goldensoft/branch-pos build"
+    "tauri-branch-ui": "pnpm --filter @goldensoft/branch-pos tauri:dev",
+    "tauri-branch-ui:build": "pnpm --filter @goldensoft/branch-pos tauri build"
   },
   "engines": {
     "pnpm": ">=8.0.0"

@@ -1,12 +1,13 @@
 import { db } from '../../db';
-import { checks, checkItems, checkItemModifiers, shifts, options, checkStatus, checkKind, tables, modifiers, menuItems, users, rolePermissions, permissions, printers, roles } from '../../db/schema';
-import { eq, and, desc, gte, lte, gt, lt } from 'drizzle-orm';
+import { checks, checkItems, checkItemModifiers, shifts, options, checkStatus, checkKind, tables, modifiers, menuItems, users, rolePermissions, permissions, printers, roles, deliveryCustomers, deliveryZones, deliveryPilots, deliveryAddresses, deliveryPhones } from '../../db/schema';
+import { eq, and, desc, gte, lte, gt, lt, inArray } from 'drizzle-orm';
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import { calculateCheckTotals } from '@goldensoft/core-schemas';
 import type { CreateCheckInput, AddCheckItemInput, VoidCheckItemInput, EntCheckItemInput, SplitCheckInput, CloseCheckInput } from '@goldensoft/core-schemas';
 import { PERMISSIONS } from '@goldensoft/core-schemas';
 import { checksPrinter } from './checks.printer';
+import { shiftService } from '../shifts/shift.service';
 
 export class ChecksService {
   
@@ -148,6 +149,9 @@ export class ChecksService {
     if (filters.tableId) {
       conditions.push(eq(checks.tableId, filters.tableId));
     }
+    if (filters.deliveryCustomerId) {
+      conditions.push(eq(checks.deliveryCustomerId, filters.deliveryCustomerId));
+    }
     
     if (filters.amountValue !== undefined && filters.amountValue !== null && filters.amountOperator) {
       const val = Number(filters.amountValue);
@@ -241,11 +245,38 @@ export class ChecksService {
       modifiers: modifiersList.filter(m => m.checkItemId === item.id)
     }));
 
+    let deliveryCustomer: any = null;
+    let deliveryZone: any = null;
+    let deliveryPilot: any = null;
+
+    if (chk.deliveryCustomerId) {
+      const cust = tx.select().from(deliveryCustomers).where(eq(deliveryCustomers.id, chk.deliveryCustomerId)).get();
+      if (cust) {
+        const addresses = tx.select().from(deliveryAddresses).where(eq(deliveryAddresses.deliveryCustomerId, chk.deliveryCustomerId)).all();
+        const phones = tx.select().from(deliveryPhones).where(eq(deliveryPhones.deliveryCustomerId, chk.deliveryCustomerId)).all();
+        deliveryCustomer = {
+          ...cust,
+          addresses,
+          phones
+        };
+        const defaultAddr = addresses.find((a: any) => a.isDefault) || addresses[0];
+        if (defaultAddr) {
+          deliveryZone = tx.select().from(deliveryZones).where(eq(deliveryZones.id, defaultAddr.deliveryZoneId)).get();
+        }
+      }
+    }
+    if (chk.deliveryPilotId) {
+      deliveryPilot = tx.select().from(deliveryPilots).where(eq(deliveryPilots.id, chk.deliveryPilotId)).get();
+    }
+
     return {
       ...chk,
       waiterName,
       cashierName,
-      items: itemsWithMods
+      items: itemsWithMods,
+      deliveryCustomer,
+      deliveryZone,
+      deliveryPilot
     };
   }
 
@@ -255,12 +286,7 @@ export class ChecksService {
 
   async createCheck(data: CreateCheckInput, userId: string) {
     // Determine active shift to grab businessDate and shift number
-    const activeShifts = await db.select().from(shifts).where(eq(shifts.status, 'open')).limit(1);
-    if (activeShifts.length === 0) {
-      throw new Error("No active shift found. Please open a shift first.");
-    }
-    const currentShift = activeShifts[0];
-
+    const currentShift = await shiftService.getCurrentShift(userId);
     const todayStr = currentShift.businessDate;
 
     // Auto-generate a chkNo (we should use a sequence, but for simplicity we take max + 1)
@@ -269,11 +295,57 @@ export class ChecksService {
 
     const checkId = crypto.randomUUID();
 
-    // If dining, determine delivery charge based on CheckKind
+    // Validate deliveryCustomerId exists if provided
+    let verifiedCustomerId = data.deliveryCustomerId;
+    if (verifiedCustomerId) {
+      const custExists = await db.select({ id: deliveryCustomers.id })
+        .from(deliveryCustomers)
+        .where(eq(deliveryCustomers.id, verifiedCustomerId))
+        .limit(1);
+      if (custExists.length === 0) {
+        verifiedCustomerId = undefined;
+      }
+    }
+
+    // Validate tableId exists if provided
+    let verifiedTableId = data.tableId;
+    let verifiedTableName = data.tableName;
+    if (verifiedTableId) {
+      const tblExists = await db.select({ id: tables.id })
+        .from(tables)
+        .where(eq(tables.id, verifiedTableId))
+        .limit(1);
+      if (tblExists.length === 0) {
+        verifiedTableId = undefined;
+        verifiedTableName = undefined;
+      }
+    }
+
+    // If delivery, determine delivery charge based on CheckKind and configuration
     let deliveryCharge = 0;
-    if (data.checkKindId === 3) { // Delivery
-      const opts = await db.select().from(options).limit(1);
-      deliveryCharge = opts[0]?.fixedDeliveryCharge || 0;
+    if (data.checkKindId === 2) { // 2 = Delivery
+      if (data.deliveryCharge !== undefined) {
+        deliveryCharge = data.deliveryCharge;
+      } else {
+        let zoneCharge: number | null = null;
+        const targetZoneId = data.deliveryZoneId || (verifiedCustomerId ? (await db.select({ zoneId: deliveryAddresses.deliveryZoneId })
+          .from(deliveryAddresses)
+          .where(and(eq(deliveryAddresses.deliveryCustomerId, verifiedCustomerId), eq(deliveryAddresses.isDefault, true)))
+          .limit(1)
+          .then(res => res[0]?.zoneId)) : null);
+        if (targetZoneId) {
+          const zone = await db.select({ charge: deliveryZones.deliveryCharge })
+            .from(deliveryZones)
+            .where(eq(deliveryZones.id, targetZoneId))
+            .limit(1);
+          if (zone.length > 0) {
+            zoneCharge = zone[0].charge;
+          }
+        }
+        const opts = await db.select().from(options).limit(1);
+        const fixedCharge = opts[0]?.fixedDeliveryCharge ?? 0;
+        deliveryCharge = zoneCharge ?? fixedCharge;
+      }
     }
 
     const now = new Date();
@@ -293,8 +365,8 @@ export class ChecksService {
       chkDate: todayStr, // using business date
       chkTime: timeStr,
       checkKindId: data.checkKindId,
-      tableId: data.tableId || null,
-      tableName: data.tableName || null,
+      tableId: verifiedTableId || null,
+      tableName: verifiedTableName || null,
       chkStatusId: 1, // Open
       guestCount: data.guestCount,
       cashierId: isWaiterUser ? null : userId,
@@ -303,6 +375,12 @@ export class ChecksService {
       deliveryCharge: deliveryCharge,
       customerName: data.customerName || null,
       customerPhone: data.customerPhone || null,
+      deliveryCustomerId: verifiedCustomerId || null,
+      deliveryAddress: data.deliveryAddress || null,
+      deliveryFloor: data.deliveryFloor || null,
+      deliveryUnit: data.deliveryUnit || null,
+      deliveryLandmark: data.deliveryLandmark || null,
+      deliveryNotes: data.deliveryNotes || null,
       createdAt: now.toISOString(),
       updatedAt: now.toISOString()
     });
@@ -1142,7 +1220,7 @@ export class ChecksService {
     return this.getCheckByIdSync(chkId);
   }
 
-  async updateCustomerInfo(chkId: string, customerName: string | null, customerPhone: string | null, userId: string) {
+  async updateCustomerInfo(chkId: string, customerName: string | null, customerPhone: string | null, userId: string, deliveryCustomerId?: string | null) {
     const chk = this.getCheckByIdSync(chkId);
     if (!chk) {
       throw new Error('Check not found');
@@ -1154,10 +1232,41 @@ export class ChecksService {
 
     await this.validateWaiterAccess(chk, userId);
 
+    let verifiedCustomerId = deliveryCustomerId;
+    if (deliveryCustomerId) {
+      const custExists = await db.select({ id: deliveryCustomers.id })
+        .from(deliveryCustomers)
+        .where(eq(deliveryCustomers.id, deliveryCustomerId))
+        .limit(1);
+      if (custExists.length === 0) {
+        verifiedCustomerId = null;
+      }
+    }
+
+    let deliveryCharge = chk.deliveryCharge;
+    if (verifiedCustomerId !== undefined && chk.checkKindId === 2) {
+      let zoneCharge: number | null = null;
+      if (verifiedCustomerId) {
+        const dc = await db.select({ charge: deliveryZones.deliveryCharge })
+          .from(deliveryAddresses)
+          .innerJoin(deliveryZones, eq(deliveryAddresses.deliveryZoneId, deliveryZones.id))
+          .where(and(eq(deliveryAddresses.deliveryCustomerId, verifiedCustomerId), eq(deliveryAddresses.isDefault, true)))
+          .limit(1);
+        if (dc.length > 0) {
+          zoneCharge = dc[0].charge;
+        }
+      }
+      const opts = await db.select().from(options).limit(1);
+      const fixedCharge = opts[0]?.fixedDeliveryCharge ?? 0;
+      deliveryCharge = zoneCharge ?? fixedCharge;
+    }
+
     db.update(checks)
       .set({
         customerName: customerName || null,
         customerPhone: customerPhone || null,
+        deliveryCustomerId: deliveryCustomerId !== undefined ? verifiedCustomerId : chk.deliveryCustomerId,
+        deliveryCharge: deliveryCharge,
         updatedAt: new Date().toISOString()
       })
       .where(eq(checks.id, chkId))
@@ -1284,6 +1393,36 @@ export class ChecksService {
       .set(updatedValues)
       .where(eq(checks.id, chkId))
       .run();
+
+    if (chk.deliveryCustomerId) {
+      try {
+        const customerChecks = db.select({ total: checks.total })
+          .from(checks)
+          .where(
+            and(
+              eq(checks.deliveryCustomerId, chk.deliveryCustomerId),
+              inArray(checks.chkStatusId, [2, 3, 4, 6, 7, 8, 11])
+            )
+          )
+          .all();
+
+        const totalOrders = customerChecks.length;
+        const totalSpent = customerChecks.reduce((sum, c) => sum + (c.total || 0), 0);
+        const averageTicket = totalOrders > 0 ? totalSpent / totalOrders : 0;
+
+        db.update(deliveryCustomers)
+          .set({
+            totalOrders,
+            totalSpent,
+            averageTicket,
+            updatedAt: new Date().toISOString()
+          })
+          .where(eq(deliveryCustomers.id, chk.deliveryCustomerId))
+          .run();
+      } catch (err) {
+        console.error("Failed to update delivery customer stats:", err);
+      }
+    }
 
     return this.getCheckByIdSync(chkId);
   }

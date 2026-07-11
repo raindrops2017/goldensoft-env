@@ -291,14 +291,15 @@ export class ChecksController {
   async updateCustomerInfo(req: Request, res: Response): Promise<void> {
     try {
       const checkId = req.params.id as string;
-      const { customerName, customerPhone } = req.body;
+      const { customerName, customerPhone, deliveryCustomerId } = req.body;
       const userId = req.user?.userId || 'system';
 
       const updatedCheck = await checksService.updateCustomerInfo(
         checkId,
         customerName || null,
         customerPhone || null,
-        userId
+        userId,
+        deliveryCustomerId || null
       );
 
       const io = req.app.get('io');
@@ -336,6 +337,60 @@ export class ChecksController {
       res.json({ success: true, data: updatedCheck });
     } catch (error: any) {
       console.error('Close check error:', error);
+      res.status(400).json({ success: false, error: error.message });
+    }
+  }
+
+  async batchCloseChecks(req: Request, res: Response): Promise<void> {
+    try {
+      const { checkIds, paymentMethod, supervisorPin, supervisorId } = req.body;
+      if (!Array.isArray(checkIds) || checkIds.length === 0) {
+        res.status(400).json({ success: false, error: 'checkIds must be a non-empty array' });
+        return;
+      }
+      const userId = req.user?.userId || 'system';
+
+      const io = req.app.get('io');
+      const results = [];
+
+      for (const checkId of checkIds) {
+        const chk = checksService.getCheckByIdSync(checkId);
+        if (!chk) {
+          throw new Error(`Check ${checkId} not found`);
+        }
+
+        const total = chk.chkTotal;
+        const payload = {
+          paymentMethod: paymentMethod || 'Cash',
+          cash: paymentMethod === 'Visa' ? 0 : total,
+          visaAmount: paymentMethod === 'Visa' ? total : 0,
+          clAmount: 0,
+          tips: 0,
+          isComp: paymentMethod === 'Comp',
+          discountAmount: chk.discountAmount || 0,
+          discountPrsn: chk.discountPrsn || 0,
+          visaNo: null,
+          cardType: null,
+          clNote: null,
+          paidCash: paymentMethod === 'Visa' ? 0 : total,
+          supervisorPin,
+          supervisorId,
+        };
+
+        const updatedCheck = await checksService.closeCheck(checkId, payload, userId);
+        results.push(updatedCheck);
+
+        if (io) {
+          io.emit('table:status:changed', { 
+            tableId: updatedCheck.tableId || 'delivery', 
+            status: 'free' 
+          });
+        }
+      }
+
+      res.json({ success: true, data: results });
+    } catch (error: any) {
+      console.error('Batch close checks error:', error);
       res.status(400).json({ success: false, error: error.message });
     }
   }

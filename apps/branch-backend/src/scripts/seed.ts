@@ -1,7 +1,7 @@
 import { db } from '../db';
 import { 
   roles, permissions, rolePermissions, users, options, tableSections, tables,
-  customers, deliveryZones, deliveryCustomers, deliveryPilots, printers,
+  customers, deliveryZones, deliveryCustomers, deliveryAddresses, deliveryPhones, deliveryPilots, printers,
   menuTypes, menuGroups, menuSubGroups, modifiersGroups, modifiers,
   menuItems, menuItemPrices, menuItemModifiers, menuItemPrinters,
   checkStatus, checkKind, checks, checkItems, checkItemModifiers,
@@ -35,6 +35,8 @@ async function seed() {
       menuTypes,
       modifiers,
       modifiersGroups,
+      deliveryAddresses,
+      deliveryPhones,
       deliveryCustomers,
       deliveryZones,
       deliveryPilots,
@@ -60,10 +62,10 @@ async function seed() {
 
     // 1. Seed Roles
     console.log('👥 Seeding roles...');
-    const adminRoleId = crypto.randomUUID();
-    const managerRoleId = crypto.randomUUID();
-    const cashierRoleId = crypto.randomUUID();
-    const waiterRoleId = crypto.randomUUID();
+    const adminRoleId = '10000000-0000-0000-0000-000000000001';
+    const managerRoleId = '10000000-0000-0000-0000-000000000002';
+    const cashierRoleId = '10000000-0000-0000-0000-000000000003';
+    const waiterRoleId = '10000000-0000-0000-0000-000000000004';
 
     await db.insert(roles).values([
       { id: adminRoleId, name: 'admin', description: 'Administrator with full system control', isWaiter: false },
@@ -140,11 +142,11 @@ async function seed() {
     const hashedPinWaiter = await bcrypt.hash('2222', 10);
     const hashedPinWaiter2 = await bcrypt.hash('3333', 10);
 
-    const adminUserId = crypto.randomUUID();
-    const managerUserId = crypto.randomUUID();
-    const cashierUserId = crypto.randomUUID();
-    const waiterUserId = crypto.randomUUID();
-    const waiterUserId2 = crypto.randomUUID();
+    const adminUserId = '20000000-0000-0000-0000-000000000001';
+    const managerUserId = '20000000-0000-0000-0000-000000000002';
+    const cashierUserId = '20000000-0000-0000-0000-000000000003';
+    const waiterUserId = '20000000-0000-0000-0000-000000000004';
+    const waiterUserId2 = '20000000-0000-0000-0000-000000000005';
 
     await db.insert(users).values([
       { id: adminUserId, username: 'admin', pin: hashedPinAdmin, role: 'admin', roleId: adminRoleId, isActive: true },
@@ -265,8 +267,8 @@ async function seed() {
     const pilotAhmedId = crypto.randomUUID();
     const pilotMohamedId = crypto.randomUUID();
     await db.insert(deliveryPilots).values([
-      { id: pilotAhmedId, name: 'Captain Ahmed Fawzy' },
-      { id: pilotMohamedId, name: 'Captain Mohamed Samir' }
+      { id: pilotAhmedId, name: 'Captain Ahmed Fawzy', phone: '01012345678' },
+      { id: pilotMohamedId, name: 'Captain Mohamed Samir', phone: '01234567890' }
     ]);
 
     // Seed some delivery customers
@@ -274,11 +276,23 @@ async function seed() {
     await db.insert(deliveryCustomers).values({
       id: delCustId,
       name: 'Amr Diab',
+    });
+
+    await db.insert(deliveryAddresses).values({
+      id: crypto.randomUUID(),
+      deliveryCustomerId: delCustId,
       deliveryZoneId: zoneMaadiId,
-      phone: '01001234567',
       address: 'Villa 12, Road 200, Degla',
       floor: 'Ground',
-      notes: 'Ring the outer bell'
+      notes: 'Ring the outer bell',
+      isDefault: true,
+    });
+
+    await db.insert(deliveryPhones).values({
+      id: crypto.randomUUID(),
+      deliveryCustomerId: delCustId,
+      phone: '01001234567',
+      isDefault: true,
     });
 
     // 11. Seed Menu Types

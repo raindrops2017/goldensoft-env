@@ -6,15 +6,24 @@ export const useCurrentShift = () => {
     queryKey: ['currentShift'],
     queryFn: async () => {
       const res = await api.get('/shifts/current');
-      return res.data.data; // assuming { success: true, data: { ...shift } }
+      return res.data.data;
     },
   });
 };
 
-export const useOpenShift = () => {
+export const useCloseShift = () => {
   return useMutation({
-    mutationFn: async (data: { startingCash: number }) => {
-      const res = await api.post('/shifts/open', data);
+    mutationFn: async (data: { actualClosingCash: number }) => {
+      const res = await api.post('/shifts/close', data);
+      return res.data.data;
+    }
+  });
+};
+
+export const useCloseDay = () => {
+  return useMutation({
+    mutationFn: async (data: { actualClosingCash: number }) => {
+      const res = await api.post('/shifts/close-day', data);
       return res.data.data;
     }
   });
